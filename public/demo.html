@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChatBox Live Support — Real-Time Customer Chat Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    body {
+      background: #f8fafc;
+      color: #0f172a;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    .header {
+      padding: 18px 8%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .logo {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+    .logo span {
+      background: linear-gradient(135deg, #2563eb, #f97316);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .nav {
+      display: flex;
+      gap: 28px;
+      align-items: center;
+    }
+    .nav a {
+      color: #475569;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+      transition: color 0.2s;
+    }
+    .nav a:hover {
+      color: #2563eb;
+    }
+    .btn-login {
+      background: #eff6ff;
+      color: #2563eb;
+      padding: 9px 20px;
+      border-radius: 10px;
+      border: 1px solid #bfdbfe;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-login:hover {
+      background: #2563eb;
+      color: #ffffff;
+      border-color: #2563eb;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.25);
+    }
+    .hero {
+      padding: 70px 8% 40px;
+      text-align: center;
+      background: radial-gradient(circle at 50% 15%, #eff6ff 0%, #f8fafc 65%);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      border-radius: 30px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      color: #2563eb;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    }
+    .badge-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 8px #10b981;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+    .hero h1 {
+      font-size: 50px;
+      font-weight: 800;
+      line-height: 1.18;
+      margin-bottom: 18px;
+      letter-spacing: -1.5px;
+      color: #0f172a;
+    }
+    .hero h1 span {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 45%, #f97316 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      font-size: 18px;
+      color: #475569;
+      max-width: 680px;
+      margin: 0 auto 32px;
+      line-height: 1.6;
+    }
+    .hero-actions {
+      display: flex;
+      justify-content: center;
+      gap: 14px;
+      margin-bottom: 30px;
+      flex-wrap: wrap;
+    }
+    .btn-hero-primary {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      color: #ffffff;
+      padding: 14px 28px;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      border: none;
+      box-shadow: 0 6px 18px rgba(37, 99, 235, 0.3);
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-hero-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(37, 99, 235, 0.4);
+    }
+    .btn-hero-secondary {
+      background: #ffffff;
+      color: #0f172a;
+      padding: 14px 28px;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      border: 1px solid #cbd5e1;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+      transition: all 0.2s;
+    }
+    .btn-hero-secondary:hover {
+      background: #f1f5f9;
+      border-color: #94a3b8;
+    }
+
+    .demo-info-banner {
+      background: #ffffff;
+      border: 1px solid #bfdbfe;
+      border-radius: 16px;
+      padding: 20px 28px;
+      margin: 0 8% 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+      box-shadow: 0 4px 16px rgba(37, 99, 235, 0.06);
+    }
+    .demo-info-banner strong {
+      color: #1e3a8a;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .demo-info-banner code {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      padding: 5px 12px;
+      border-radius: 8px;
+      color: #1d4ed8;
+      font-size: 13px;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+    }
+
+    .section-title {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .section-title h2 {
+      font-size: 32px;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: -0.8px;
+      margin-bottom: 8px;
+    }
+    .section-title p {
+      font-size: 15px;
+      color: #64748b;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      padding: 0 8% 70px;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 18px;
+      padding: 34px;
+      transition: all 0.25s ease;
+      position: relative;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+      display: flex;
+      flex-direction: column;
+    }
+    .card:hover {
+      transform: translateY(-6px);
+      border-color: #93c5fd;
+      box-shadow: 0 16px 32px rgba(37, 99, 235, 0.1);
+    }
+    .card h3 {
+      font-size: 22px;
+      font-weight: 800;
+      color: #0f172a;
+      margin-bottom: 6px;
+    }
+    .card-subtitle {
+      font-size: 13px;
+      color: #64748b;
+      margin-bottom: 18px;
+    }
+    .price {
+      font-size: 36px;
+      font-weight: 800;
+      color: #2563eb;
+      margin-bottom: 20px;
+      line-height: 1;
+    }
+    .price span {
+      font-size: 14px;
+      color: #64748b;
+      font-weight: 500;
+    }
+    .card ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      color: #334155;
+      font-size: 14px;
+      margin-bottom: 28px;
+      flex-grow: 1;
+    }
+    .card ul li {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      line-height: 1.4;
+    }
+    .card ul li span.check {
+      color: #10b981;
+      font-weight: 800;
+      font-size: 16px;
+    }
+    .card-btn {
+      width: 100%;
+      padding: 12px 18px;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 14px;
+      text-align: center;
+      text-decoration: none;
+      cursor: pointer;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      color: #0f172a;
+      transition: all 0.2s;
+    }
+    .card-btn:hover {
+      background: #eff6ff;
+      color: #2563eb;
+      border-color: #bfdbfe;
+    }
+    .popular-card {
+      border: 2px solid #2563eb;
+      background: linear-gradient(180deg, #eff6ff 0%, #ffffff 35%);
+      box-shadow: 0 8px 24px rgba(37, 99, 235, 0.08);
+    }
+    .popular-card .card-btn {
+      background: #2563eb;
+      color: #ffffff;
+      border-color: #2563eb;
+    }
+    .popular-card .card-btn:hover {
+      background: #1d4ed8;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    }
+    .popular-tag {
+      background: linear-gradient(135deg, #f97316, #ea580c);
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: 20px;
+      display: inline-block;
+      margin-bottom: 12px;
+      align-self: flex-start;
+      box-shadow: 0 2px 6px rgba(249, 115, 22, 0.3);
+    }
+
+    /* Features Showcase */
+    .features-section {
+      padding: 40px 8% 80px;
+      background: #ffffff;
+      border-top: 1px solid #e2e8f0;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 28px;
+    }
+    .feature-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 24px;
+      transition: all 0.2s;
+    }
+    .feature-box:hover {
+      border-color: #93c5fd;
+      background: #ffffff;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.04);
+    }
+    .feature-icon {
+      font-size: 28px;
+      margin-bottom: 14px;
+      display: inline-block;
+    }
+    .feature-box h4 {
+      font-size: 17px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 8px;
+    }
+    .feature-box p {
+      font-size: 13.5px;
+      color: #64748b;
+      line-height: 1.5;
+    }
+
+    /* Easy Embed Section */
+    .embed-section {
+      padding: 60px 8% 80px;
+      text-align: center;
+    }
+    .embed-card {
+      background: #0f172a;
+      color: #f8fafc;
+      border-radius: 18px;
+      padding: 36px 40px;
+      max-width: 820px;
+      margin: 0 auto;
+      text-align: left;
+      box-shadow: 0 20px 40px rgba(15, 23, 42, 0.15);
+    }
+    .embed-card pre {
+      background: #1e293b;
+      padding: 18px;
+      border-radius: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      color: #38bdf8;
+      overflow-x: auto;
+      margin-top: 14px;
+      line-height: 1.5;
+    }
+
+    /* Footer */
+    footer {
+      padding: 30px 8%;
+      background: #ffffff;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: #64748b;
+      font-size: 13px;
+    }
+    footer a {
+      color: #2563eb;
+      text-decoration: none;
+    }
+
+    @media (max-width: 900px) {
+      .grid, .features-grid {
+        grid-template-columns: 1fr;
+      }
+      .hero h1 {
+        font-size: 36px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation Header -->
+  <header class="header">
+    <a href="/demo.html" class="logo">⚡ <span>ChatBox</span> Live Support</a>
+    <nav class="nav">
+      <a href="#plans">ChatBox Plans</a>
+      <a href="#features">Features</a>
+      <a href="#embed">1-Click Integration</a>
+      <a href="/" class="btn-login">Agent Workspace →</a>
+    </nav>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="badge">
+      <div class="badge-dot"></div>
+      Live Support Widget Online (Click Bottom Right Bubble)
+    </div>
+    <h1>Convert Website Visitors with <span>Modern Live Chat</span></h1>
+    <p>A multi-tenant, ultra-secure live chat software for businesses. Real-time WebSockets, instant FAQ bot resolution, anti-bot security, and unified team inbox.</p>
+    
+    <div class="hero-actions">
+      <button onclick="triggerChatWidget()" class="btn-hero-primary">
+        💬 Test Live Chat Widget
+      </button>
+      <a href="/" class="btn-hero-secondary">
+        📊 Open Agent Workspace
+      </a>
+    </div>
+  </section>
+
+  <!-- Live Chat Interactive Demo Banner -->
+  <div class="demo-info-banner">
+    <div>
+      <strong>✨ Live Client Website Demo Environment</strong>
+      <p style="font-size: 13.5px; color: #475569; margin-top: 4px;">
+        This page represents a client website running the ChatBox widget script. Click the blue chat bubble at the bottom right to start a real chat!
+      </p>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span style="font-size: 12px; color: #64748b;">Public Key:</span>
+      <code id="display-pk">Loading...</code>
+    </div>
+  </div>
+
+  <!-- ChatBox Plans & Pricing -->
+  <div class="section-title" id="plans">
+    <h2>Choose Your ChatBox SaaS Plan</h2>
+    <p>Flexible live chat pricing designed for fast-growing businesses, eCommerce, and agencies.</p>
+  </div>
+
+  <section class="grid">
+    <!-- Starter Chat -->
+    <div class="card">
+      <h3>Starter Chat</h3>
+      <div class="card-subtitle">Ideal for small businesses &amp; solo founders</div>
+      <div class="price">₹499 <span>/month</span></div>
+      <ul>
+        <li><span class="check">✓</span> 1 Connected Website Domain</li>
+        <li><span class="check">✓</span> 2 Live Support Agent Accounts</li>
+        <li><span class="check">✓</span> Real-Time WebSocket Chat (Zero Lag)</li>
+        <li><span class="check">✓</span> Automated FAQ Knowledge Base</li>
+        <li><span class="check">✓</span> Audio Notification Pings</li>
+        <li><span class="check">✓</span> Standard Lead &amp; Visitor Tracking</li>
+      </ul>
+      <button class="card-btn" onclick="triggerChatWidget()">Try in Live Chat</button>
+    </div>
+
+    <!-- Pro Business (Most Popular) -->
+    <div class="card popular-card">
+      <div class="popular-tag">Most Popular</div>
+      <h3>Pro Business</h3>
+      <div class="card-subtitle">For growing sales &amp; support teams</div>
+      <div class="price">₹1,299 <span>/month</span></div>
+      <ul>
+        <li><span class="check">✓</span> 5 Connected Website Domains</li>
+        <li><span class="check">✓</span> 10 Live Support Agent Accounts</li>
+        <li><span class="check">✓</span> Unlimited Concurrent Live Chats</li>
+        <li><span class="check">✓</span> Quick Canned Replies (/shortcut)</li>
+        <li><span class="check">✓</span> Anti-Bot &amp; Honeypot Security Shield</li>
+        <li><span class="check">✓</span> Visitor Geo-Location &amp; Browsing Page Intel</li>
+        <li><span class="check">✓</span> Priority Support Queue</li>
+      </ul>
+      <button class="card-btn" onclick="triggerChatWidget()">Get Pro ChatBox</button>
+    </div>
+
+    <!-- Enterprise Suite -->
+    <div class="card">
+      <h3>Enterprise Suite</h3>
+      <div class="card-subtitle">For enterprises, agencies &amp; high traffic</div>
+      <div class="price">₹2,999 <span>/month</span></div>
+      <ul>
+        <li><span class="check">✓</span> Unlimited Connected Websites</li>
+        <li><span class="check">✓</span> Unlimited Live Support Agents</li>
+        <li><span class="check">✓</span> Multi-Tenant Platform Master Control</li>
+        <li><span class="check">✓</span> Department Routing (Sales, Tech, Billing)</li>
+        <li><span class="check">✓</span> Custom Brand Colors &amp; Shadow DOM Widget</li>
+        <li><span class="check">✓</span> Dedicated Account Manager &amp; 99.9% SLA</li>
+      </ul>
+      <button class="card-btn" onclick="triggerChatWidget()">Contact for Enterprise</button>
+    </div>
+  </section>
+
+  <!-- Features Highlight Section -->
+  <section class="features-section" id="features">
+    <div class="section-title">
+      <h2>Why Businesses Love ChatBox</h2>
+      <p>Everything you need to deliver lightning-fast support and convert leads.</p>
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-box">
+        <span class="feature-icon">⚡</span>
+        <h4>Real-Time WebSocket Streaming</h4>
+        <p>Instant two-way conversation between visitors and agents with zero refresh or delay, backed by fallback polling.</p>
+      </div>
+
+      <div class="feature-box">
+        <span class="feature-icon">🛡️</span>
+        <h4>Anti-Bot &amp; Honeypot Defense</h4>
+        <p>Integrated security shield to filter out malicious bots, spam crawlers, and rapid-fire API injection attacks.</p>
+      </div>
+
+      <div class="feature-box">
+        <span class="feature-icon">📚</span>
+        <h4>Self-Service FAQs &amp; Canned Replies</h4>
+        <p>Automate 70% of visitor questions instantly with built-in FAQs, plus 1-click answers for support agents.</p>
+      </div>
+
+      <div class="feature-box">
+        <span class="feature-icon">🎨</span>
+        <h4>100% Isolated Shadow DOM</h4>
+        <p>The chat bubble and window live in an encapsulated Shadow DOM so client website CSS never breaks the widget.</p>
+      </div>
+
+      <div class="feature-box">
+        <span class="feature-icon">🏢</span>
+        <h4>Multi-Tenant Client Architecture</h4>
+        <p>Super Admin can host dozens of companies, each with their own isolated support teams, domains, and branding.</p>
+      </div>
+
+      <div class="feature-box">
+        <span class="feature-icon">📊</span>
+        <h4>Visitor Intelligence &amp; Lead Tracking</h4>
+        <p>See visitor city, country, browser, OS, and active page in real-time right inside the agent inbox.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 1-Click Embed Guide -->
+  <section class="embed-section" id="embed">
+    <div class="section-title">
+      <h2>Embed in Any Website in 60 Seconds</h2>
+      <p>Works seamlessly with WordPress, Shopify, Laravel, Next.js, and raw HTML.</p>
+    </div>
+
+    <div class="embed-card">
+      <div style="font-size:14px; font-weight:700; color:#38bdf8; margin-bottom:4px;">HTML / PHP / WordPress Footer Snippet:</div>
+      <p style="font-size:13px; color:#94a3b8;">Paste this code just before the closing <code>&lt;/body&gt;</code> tag of your website:</p>
+      <pre>&lt;!-- ChatBox Live Support Widget --&gt;
+&lt;script&gt;
+  window.ChatBoxConfig = {
+    propertyKey: "<span id="snippet-pk">YOUR_PROPERTY_KEY</span>",
+    apiUrl: window.location.origin
+  };
+&lt;/script&gt;
+&lt;script src="/widget.js" async&gt;&lt;/script&gt;</pre>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div>&copy; 2026 <strong>ChatBox Live Support SaaS</strong>. All rights reserved.</div>
+    <div>
+      <a href="/">Agent Login</a> &bull;
+      <a href="#plans">Pricing</a> &bull;
+      <a href="#" onclick="triggerChatWidget(); return false;">Chat with Support</a>
+    </div>
+  </footer>
+
+  <!-- ========================================== -->
+  <!-- ChatBox Real-Time Support Widget Embed Code -->
+  <!-- ========================================== -->
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const propertyKey = urlParams.get('pk') || "pk_live_chatbox_FiTEeVrRTkfRAuGWIhjD";
+    
+    document.getElementById('display-pk').textContent = propertyKey;
+    const snippetPk = document.getElementById('snippet-pk');
+    if (snippetPk) snippetPk.textContent = propertyKey;
+
+    window.ChatBoxConfig = {
+      propertyKey: propertyKey,
+      apiUrl: window.location.origin
+    };
+    // Backward compatibility
+    window.JixChatConfig = window.ChatBoxConfig;
+
+    function triggerChatWidget() {
+      // Find widget shadow root or trigger toggle
+      const host = document.getElementById('jixchat-widget-root') || document.querySelector('[id*="chat"]');
+      if (host && host.shadowRoot) {
+        const bubble = host.shadowRoot.getElementById('jix-launcher') || host.shadowRoot.querySelector('button');
+        if (bubble) {
+          bubble.click();
+          return;
+        }
+      }
+      alert('The chat widget is loaded in the bottom right corner! Click the blue chat bubble to begin.');
+    }
+    window.triggerChatWidget = triggerChatWidget;
+  </script>
+  <script src="/widget.js" async></script>
+
+</body>
+</html>

@@ -1,0 +1,266 @@
+/* ==========================================================================
+   ChatBox — Skeuomorphic Design System (Vanilla CSS)
+   Tactile 3D Shadows, Bevels, Metallic Insets & Realistic Depth
+   ========================================================================== */
+
+:root {
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Skeuomorphic Palette */
+  --skeuo-bg: #e6ecf2;
+  --skeuo-surface: #f0f4f8;
+  --skeuo-surface-high: #ffffff;
+  --skeuo-dark-shadow: #c8d3de;
+  --skeuo-light-shadow: #ffffff;
+  --skeuo-border: rgba(255, 255, 255, 0.85);
+  --skeuo-border-dark: rgba(180, 195, 210, 0.45);
+
+  /* Primary Accent: Royal Skeuo Blue */
+  --primary-start: #3b82f6;
+  --primary-end: #1d4ed8;
+  --primary-highlight: #60a5fa;
+
+  /* Accent: Sunset Ember */
+  --accent-start: #fb923c;
+  --accent-end: #ea580c;
+
+  /* Neutral Text */
+  --text-main: #0f172a;
+  --text-muted: #475569;
+  --text-dim: #94a3b8;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--skeuo-bg);
+  background-image: 
+    radial-gradient(circle at 15% 15%, rgba(255, 255, 255, 0.7) 0%, transparent 40%),
+    radial-gradient(circle at 85% 85%, rgba(200, 215, 230, 0.4) 0%, transparent 50%);
+  color: var(--text-main);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* ==========================================================================
+   Skeuomorphic Components
+   ========================================================================== */
+
+/* Raised Panel / Card */
+.skeuo-card {
+  background: linear-gradient(145deg, #ffffff, #e9eff5);
+  border-radius: 18px;
+  box-shadow: 
+    8px 8px 18px var(--skeuo-dark-shadow),
+    -8px -8px 18px var(--skeuo-light-shadow),
+    inset 0 1px 1px rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--skeuo-border);
+}
+
+/* Inset Well / Surface (Depressed / Concave) */
+.skeuo-inset {
+  background: #e7edf3;
+  border-radius: 14px;
+  box-shadow: 
+    inset 4px 4px 8px #cbd5e1,
+    inset -4px -4px 8px #ffffff,
+    0 1px 1px rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(203, 213, 225, 0.6);
+}
+
+/* Tactile 3D Button - Primary */
+.skeuo-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 22px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%);
+  border-radius: 12px;
+  border: 1px solid #1e40af;
+  cursor: pointer;
+  box-shadow: 
+    0 5px 10px -2px rgba(29, 78, 216, 0.45),
+    0 2px 4px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.25);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  transition: all 0.12s ease;
+  user-select: none;
+}
+
+.skeuo-btn-primary:hover {
+  background: linear-gradient(180deg, #4b90ff 0%, #2563eb 100%);
+  box-shadow: 
+    0 7px 14px -2px rgba(29, 78, 216, 0.55),
+    0 3px 6px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.25);
+}
+
+.skeuo-btn-primary:active {
+  transform: translateY(2px);
+  background: linear-gradient(180deg, #1d4ed8 0%, #1e40af 100%);
+  box-shadow: 
+    inset 0 3px 6px rgba(0, 0, 0, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* Tactile 3D Button - Secondary / Neutral */
+.skeuo-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #1e293b;
+  background: linear-gradient(180deg, #ffffff 0%, #e2e8f0 100%);
+  border-radius: 12px;
+  border: 1px solid #cbd5e1;
+  cursor: pointer;
+  box-shadow: 
+    0 4px 6px -1px rgba(0, 0, 0, 0.08),
+    0 2px 4px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 #ffffff,
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+  text-shadow: 0 1px 0 #ffffff;
+  transition: all 0.12s ease;
+  user-select: none;
+}
+
+.skeuo-btn:hover {
+  background: linear-gradient(180deg, #ffffff 0%, #edf2f7 100%);
+  box-shadow: 
+    0 5px 8px -1px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 #ffffff;
+}
+
+.skeuo-btn:active, .skeuo-btn.active {
+  transform: translateY(1.5px);
+  background: linear-gradient(180deg, #cbd5e1 0%, #e2e8f0 100%);
+  box-shadow: 
+    inset 0 2px 4px rgba(0, 0, 0, 0.15),
+    0 1px 1px rgba(255, 255, 255, 0.8);
+}
+
+/* Tactile Pill Badges */
+.skeuo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  border-radius: 20px;
+  box-shadow: 
+    0 2px 4px rgba(0,0,0,0.06),
+    inset 0 1px 0 rgba(255,255,255,0.7);
+  border: 1px solid rgba(0,0,0,0.08);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.skeuo-badge-blue {
+  background: linear-gradient(180deg, #dbeafe 0%, #bfdbfe 100%);
+  color: #1e40af;
+  border-color: #93c5fd;
+}
+
+.skeuo-badge-green {
+  background: linear-gradient(180deg, #dcfce7 0%, #bbf7d0 100%);
+  color: #166534;
+  border-color: #86efac;
+}
+
+.skeuo-badge-orange {
+  background: linear-gradient(180deg, #ffedd5 0%, #fed7aa 100%);
+  color: #9a3412;
+  border-color: #fdba74;
+}
+
+.skeuo-badge-purple {
+  background: linear-gradient(180deg, #f3e8ff 0%, #e9d5ff 100%);
+  color: #6b21a8;
+  border-color: #d8b4fe;
+}
+
+/* Glowing Skeuomorphic LED */
+.skeuo-led {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  box-shadow: 0 0 6px rgba(0,0,0,0.3);
+}
+
+.skeuo-led-green {
+  background: radial-gradient(circle at 35% 35%, #86efac 0%, #22c55e 60%, #15803d 100%);
+  box-shadow: 0 0 8px #22c55e, inset 0 1px 2px #ffffff;
+  animation: skeuo-pulse 2s infinite ease-in-out;
+}
+
+.skeuo-led-orange {
+  background: radial-gradient(circle at 35% 35%, #fde047 0%, #f97316 60%, #c2410c 100%);
+  box-shadow: 0 0 8px #f97316, inset 0 1px 2px #ffffff;
+}
+
+@keyframes skeuo-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.75; transform: scale(1.15); }
+}
+
+/* Inset Input & Select */
+.skeuo-input {
+  width: 100%;
+  padding: 11px 14px;
+  background: #f1f5f9;
+  border-radius: 12px;
+  border: 1px solid #cbd5e1;
+  box-shadow: 
+    inset 2px 2px 5px rgba(0, 0, 0, 0.08),
+    inset -2px -2px 5px #ffffff,
+    0 1px 1px rgba(255, 255, 255, 0.8);
+  font-family: inherit;
+  font-size: 14px;
+  color: #0f172a;
+  outline: none;
+  transition: all 0.15s;
+}
+
+.skeuo-input:focus {
+  background: #ffffff;
+  border-color: #3b82f6;
+  box-shadow: 
+    inset 2px 2px 4px rgba(59, 130, 246, 0.15),
+    0 0 0 3px rgba(59, 130, 246, 0.25);
+}
+
+/* Scrollbar Customization for Inset Panels */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: #e2e8f0;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #cbd5e1, #94a3b8);
+  border-radius: 4px;
+  border: 1px solid #ffffff;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
