@@ -175,6 +175,11 @@ class WidgetChatController extends Controller
 
         $newMessages = $query->take(20)->get();
 
+        // Update real-time visitor presence timestamp
+        if ($conversation->visitor_id) {
+            Visitor::where('id', $conversation->visitor_id)->update(['last_seen_at' => now()]);
+        }
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -182,6 +187,48 @@ class WidgetChatController extends Controller
                 'status' => $conversation->status,
             ],
         ]);
+    }
+
+    /**
+     * Real-time visitor presence heartbeat ping.
+     */
+    public function heartbeat(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'property_key' => ['required', 'string'],
+            'visitor_token' => ['required', 'string'],
+        ]);
+
+        $property = Property::where('public_key', $validated['property_key'])->where('is_active', true)->first();
+        if ($property) {
+            Visitor::where('property_id', $property->id)
+                ->where('visitor_token', $validated['visitor_token'])
+                ->update(['last_seen_at' => now()]);
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Visitor left or closed browser tab (navigator.sendBeacon).
+     */
+    public function leave(Request $request): JsonResponse
+    {
+        $data = $request->json()->all();
+        $propertyKey = $data['property_key'] ?? $request->input('property_key');
+        $visitorToken = $data['visitor_token'] ?? $request->input('visitor_token');
+
+        if ($propertyKey && $visitorToken) {
+            $property = Property::where('public_key', $propertyKey)->where('is_active', true)->first();
+            if ($property) {
+                // Set last_seen_at to 5 minutes ago to immediately indicate offline/left
+                Visitor::where('property_id', $property->id)
+                    ->where('visitor_token', $visitorToken)
+                    ->update(['last_seen_at' => now()->subMinutes(5)]);
+            }
+        }
+
+        return response()->json(['success' => true]);
     }
 
     /**
@@ -356,6 +403,8 @@ class WidgetChatController extends Controller
         }
         $conversation->last_message_at = now();
         $conversation->save();
+
+        $visitor->update(['last_seen_at' => now()]);
 
         // Anti-XSS Sanitization
         $cleanContent = htmlspecialchars(trim(strip_tags($validated['content'])), ENT_QUOTES, 'UTF-8');

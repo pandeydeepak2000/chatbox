@@ -1027,6 +1027,31 @@
     }
   }
 
-  // Start initialization
+  // Real-time Visitor Presence Heartbeat & Tab Leave Detector
+  function setupPresenceTracking() {
+    // 1. Heartbeat every 45s while visitor is on page
+    setInterval(() => {
+      const vToken = (state.visitor && state.visitor.token) || localStorage.getItem(STORAGE_KEY);
+      if (!document.hidden && vToken && config.propertyKey) {
+        fetch(`${API_BASE}/heartbeat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ property_key: config.propertyKey, visitor_token: vToken })
+        }).catch(() => {});
+      }
+    }, 45000);
+
+    // 2. Tab close / page exit detector (sendBeacon to instantly mark left/offline)
+    window.addEventListener('beforeunload', () => {
+      const vToken = (state.visitor && state.visitor.token) || localStorage.getItem(STORAGE_KEY);
+      if (vToken && config.propertyKey && navigator.sendBeacon) {
+        const blob = new Blob([JSON.stringify({ property_key: config.propertyKey, visitor_token: vToken })], { type: 'application/json' });
+        navigator.sendBeacon(`${API_BASE}/leave`, blob);
+      }
+    });
+  }
+
+  // Start initialization & presence tracking
   init();
+  setupPresenceTracking();
 })();

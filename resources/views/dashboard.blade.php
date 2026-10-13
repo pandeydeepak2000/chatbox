@@ -557,10 +557,43 @@
       border-color: #a7f3d0;
       color: #047857;
     }
+    .btn-action.assigned {
+      background: #f0fdf4;
+      border-color: #86efac;
+      color: #15803d;
+      cursor: default;
+      font-weight: 700;
+    }
+    .btn-action.warning {
+      background: #fffbeb;
+      border-color: #fde68a;
+      color: #b45309;
+    }
     .btn-action.danger {
       background: #fef2f2;
       border-color: #fecaca;
       color: #b91c1c;
+    }
+    @keyframes pulseDot {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.2); opacity: 1; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+    .online-indicator-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+      animation: pulseDot 2s infinite ease-in-out;
+    }
+    .offline-indicator-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #94a3b8;
     }
 
     /* Messages Stream */
@@ -1043,8 +1076,11 @@
           <div class="chat-header-user">
             <div class="chat-header-avatar" id="active-visitor-avatar">AK</div>
             <div class="chat-header-info">
-              <h2 id="active-visitor-name">Amit Kumar</h2>
-              <p id="active-visitor-page">Browsing /pricing • Mumbai, IN</p>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <h2 id="active-visitor-name" style="margin:0;">Amit Kumar</h2>
+                <span id="active-visitor-presence-badge"></span>
+              </div>
+              <p id="active-visitor-page" style="margin-top:2px;">Browsing /pricing • Mumbai, IN</p>
             </div>
           </div>
           <div class="chat-header-actions">
@@ -1071,6 +1107,8 @@
       <div class="intel-card">
         <h4>Visitor Telemetry</h4>
         <div class="intel-item"><span class="intel-key">Status</span><span class="intel-val" id="intel-status">Open</span></div>
+        <div class="intel-item"><span class="intel-key">Presence</span><span class="intel-val" id="intel-presence"><span style="color:#059669; font-weight:700;">🟢 Online</span></span></div>
+        <div class="intel-item"><span class="intel-key">Last Active</span><span class="intel-val" id="intel-last-seen">Just now</span></div>
         <div class="intel-item"><span class="intel-key">Location</span><span class="intel-val" id="intel-location">Mumbai, IN</span></div>
         <div class="intel-item"><span class="intel-key">IP Address</span><span class="intel-val" id="intel-ip">127.0.0.1</span></div>
         <div class="intel-item"><span class="intel-key">Browser</span><span class="intel-val" id="intel-browser">Chrome</span></div>
@@ -1861,10 +1899,32 @@
           const v = ACTIVE_CONV.visitor || {};
           document.getElementById('active-visitor-name').textContent = v.name || 'Visitor';
           document.getElementById('active-visitor-avatar').textContent = (v.name || 'V').substring(0, 2).toUpperCase();
-          document.getElementById('active-visitor-page').textContent = `Browsing ${v.current_page_url || '/'} • ${v.city || 'Online'}, ${v.country_code || ''}`;
+
+          // Real-time Visitor Presence (Online vs Offline/Left)
+          const presenceBadge = document.getElementById('active-visitor-presence-badge');
+          const intelPresence = document.getElementById('intel-presence');
+          const intelLastSeen = document.getElementById('intel-last-seen');
+
+          if (v.is_online) {
+            if (presenceBadge) {
+              presenceBadge.innerHTML = `<span style="background:#ecfdf5; color:#059669; border:1px solid #a7f3d0; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600; display:inline-flex; align-items:center; gap:5px;"><span class="online-indicator-dot"></span> Online on Site</span>`;
+            }
+            if (intelPresence) intelPresence.innerHTML = '<span style="color:#059669; font-weight:700;">🟢 Online Now</span>';
+            if (intelLastSeen) intelLastSeen.textContent = 'Active now';
+          } else {
+            const lastSeenStr = v.last_seen_human || 'Offline';
+            if (presenceBadge) {
+              presenceBadge.innerHTML = `<span style="background:#f1f5f9; color:#64748b; border:1px solid #e2e8f0; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:500; display:inline-flex; align-items:center; gap:5px;"><span class="offline-indicator-dot"></span> Offline (Left ${lastSeenStr})</span>`;
+            }
+            if (intelPresence) intelPresence.innerHTML = `<span style="color:#64748b; font-weight:600;">⚪ Offline (Left Chat)</span>`;
+            if (intelLastSeen) intelLastSeen.textContent = lastSeenStr;
+          }
+
+          const locStr = v.city ? `${v.city}, ${v.country_code || ''}` : (v.country_code || 'Unknown location');
+          document.getElementById('active-visitor-page').textContent = `Browsing ${v.current_page_url || '/'} • ${locStr}`;
 
           document.getElementById('intel-status').textContent = (ACTIVE_CONV.status || 'open').toUpperCase();
-          document.getElementById('intel-location').textContent = `${v.city || 'Unknown'}, ${v.country_code || ''}`;
+          document.getElementById('intel-location').textContent = locStr;
           document.getElementById('intel-ip').textContent = v.ip_address || '127.0.0.1';
           document.getElementById('intel-browser').textContent = v.browser || 'Browser';
           document.getElementById('intel-os').textContent = v.os || 'OS';
@@ -1872,8 +1932,39 @@
           document.getElementById('intel-agent').textContent = ACTIVE_CONV.assigned_agent?.name || 'Unassigned';
           document.getElementById('intel-dept').textContent = ACTIVE_CONV.department?.name || 'Support';
 
+          // Assign to Me Button State Management
+          const assignBtn = document.getElementById('assign-me-btn');
+          const isAssignedToMe = CURRENT_USER && (ACTIVE_CONV.assigned_agent_id === CURRENT_USER.id);
+
+          if (isAssignedToMe) {
+            assignBtn.innerHTML = '✓ Assigned to You';
+            assignBtn.className = 'btn-action success assigned';
+            assignBtn.disabled = true;
+            assignBtn.title = 'You are currently assigned to this conversation.';
+          } else if (ACTIVE_CONV.assigned_agent_id) {
+            assignBtn.innerHTML = `Assigned: ${ACTIVE_CONV.assigned_agent?.name || 'Agent'} (Reassign)`;
+            assignBtn.className = 'btn-action warning';
+            assignBtn.disabled = false;
+            assignBtn.title = 'Click to reassign this conversation to yourself';
+          } else {
+            assignBtn.innerHTML = '👤 Assign to Me';
+            assignBtn.className = 'btn-action success';
+            assignBtn.disabled = false;
+            assignBtn.title = 'Assign this conversation to yourself';
+          }
+
+          // Close / Reopen Ticket Button State Management
           const closeBtn = document.getElementById('close-chat-btn');
-          closeBtn.textContent = ACTIVE_CONV.status === 'closed' ? 'Reopen Ticket' : 'Close Ticket';
+          closeBtn.disabled = false;
+          if (ACTIVE_CONV.status === 'closed') {
+            closeBtn.innerHTML = '🔓 Reopen Ticket';
+            closeBtn.className = 'btn-action success';
+            closeBtn.title = 'Click to reopen this closed ticket';
+          } else {
+            closeBtn.innerHTML = '🔒 Close Ticket';
+            closeBtn.className = 'btn-action danger';
+            closeBtn.title = 'Click to resolve and close this ticket';
+          }
 
           renderMessages(ACTIVE_CONV.messages || [], shouldScroll);
 
@@ -1885,7 +1976,9 @@
             }
           }).catch(() => {});
         }
-      } catch(e) {}
+      } catch(e) {
+        console.error('loadActiveConversation error:', e);
+      }
     }
 
     function renderMessages(messages, shouldScroll) {
@@ -1975,36 +2068,108 @@
       input.focus();
     }
 
+    // Dynamic Toast Notification Alert
+    function showToast(message, type = 'success') {
+      let container = document.getElementById('dashboard-toast-container');
+      if (!container) {
+        container = document.createElement('div');
+        container.id = 'dashboard-toast-container';
+        container.style.cssText = 'position:fixed; top:20px; right:24px; z-index:999999; display:flex; flex-direction:column; gap:10px; pointer-events:none;';
+        document.body.appendChild(container);
+      }
+
+      const toast = document.createElement('div');
+      const bg = type === 'success' ? '#059669' : (type === 'danger' ? '#dc2626' : '#2563eb');
+      toast.style.cssText = `background:${bg}; color:#ffffff; padding:12px 18px; border-radius:10px; font-size:13px; font-weight:600; box-shadow:0 8px 24px rgba(0,0,0,0.18); display:flex; align-items:center; gap:8px; pointer-events:auto; transition:all 0.25s ease;`;
+      toast.innerHTML = (type === 'success' ? '✓ ' : 'ℹ ') + message;
+
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-8px)';
+        setTimeout(() => toast.remove(), 250);
+      }, 3000);
+    }
+    window.showToast = showToast;
+
     async function assignToMe() {
-      if (!ACTIVE_CONV) return;
-      await fetch(`${API_BASE}/chat/conversations/${ACTIVE_CONV.id}/assign`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${AUTH_TOKEN}`
-        },
-        body: JSON.stringify({ agent_id: CURRENT_USER.id })
-      });
-      loadActiveConversation(ACTIVE_CONV.id, false);
-      loadConversations();
+      if (!ACTIVE_CONV || !AUTH_TOKEN) return;
+      const btn = document.getElementById('assign-me-btn');
+      const originalText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '⏳ Assigning...';
+
+      try {
+        const res = await fetch(`${API_BASE}/chat/conversations/${ACTIVE_CONV.id}/assign`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${AUTH_TOKEN}`
+          },
+          body: JSON.stringify({ agent_id: CURRENT_USER ? CURRENT_USER.id : null })
+        });
+        const json = await res.json();
+        if (json.success) {
+          ACTIVE_CONV.assigned_agent_id = CURRENT_USER?.id;
+          ACTIVE_CONV.assigned_agent = CURRENT_USER;
+          if (ACTIVE_CONV.status === 'unassigned') ACTIVE_CONV.status = 'open';
+
+          await loadActiveConversation(ACTIVE_CONV.id, false);
+          loadConversations();
+          loadStats();
+          showToast('Ticket assigned to you successfully!', 'success');
+        } else {
+          alert(json.message || 'Failed to assign conversation.');
+          btn.innerHTML = originalText;
+          btn.disabled = false;
+        }
+      } catch(e) {
+        console.error('Assign error:', e);
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+        alert('Server connection error while assigning ticket.');
+      }
     }
 
     async function toggleCloseChat() {
-      if (!ACTIVE_CONV) return;
+      if (!ACTIVE_CONV || !AUTH_TOKEN) return;
+      const btn = document.getElementById('close-chat-btn');
+      const originalText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '⏳ Updating...';
+
       const targetStatus = ACTIVE_CONV.status === 'closed' ? 'open' : 'closed';
-      await fetch(`${API_BASE}/chat/conversations/${ACTIVE_CONV.id}/status`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${AUTH_TOKEN}`
-        },
-        body: JSON.stringify({ status: targetStatus })
-      });
-      loadActiveConversation(ACTIVE_CONV.id, false);
-      loadConversations();
-      loadStats();
+
+      try {
+        const res = await fetch(`${API_BASE}/chat/conversations/${ACTIVE_CONV.id}/status`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${AUTH_TOKEN}`
+          },
+          body: JSON.stringify({ status: targetStatus })
+        });
+        const json = await res.json();
+        if (json.success) {
+          ACTIVE_CONV.status = targetStatus;
+          await loadActiveConversation(ACTIVE_CONV.id, false);
+          loadConversations();
+          loadStats();
+          const actionText = targetStatus === 'closed' ? 'Ticket closed successfully.' : 'Ticket reopened successfully!';
+          showToast(actionText, 'success');
+        } else {
+          alert(json.message || 'Failed to update conversation status.');
+          btn.innerHTML = originalText;
+          btn.disabled = false;
+        }
+      } catch(e) {
+        console.error('Status update error:', e);
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+        alert('Server connection error while updating ticket status.');
+      }
     }
 
     async function loadCannedResponses() {

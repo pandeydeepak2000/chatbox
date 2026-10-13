@@ -28,6 +28,8 @@ Route::prefix('v1')->group(function () {
         Route::post('broadcasting/auth', [WidgetChatController::class, 'authBroadcast']);
         Route::get('faqs', [WidgetChatController::class, 'faqs']);
         Route::get('conversations/{id}/sync', [WidgetChatController::class, 'syncMessages']);
+        Route::post('heartbeat', [WidgetChatController::class, 'heartbeat']);
+        Route::post('leave', [WidgetChatController::class, 'leave']);
     });
 
     // =========================================================================
