@@ -439,12 +439,12 @@
 
   <!-- Navigation Header -->
   <header class="header">
-    <a href="/demo.html" class="logo">⚡ <span>ChatBox</span> Live Support</a>
+    <a href="/" class="logo">⚡ <span>ChatBox</span> Live Support</a>
     <nav class="nav">
       <a href="#plans">ChatBox Plans</a>
       <a href="#features">Features</a>
       <a href="#embed">1-Click Integration</a>
-      <a href="/" class="btn-login">Agent Workspace →</a>
+      <a href="/login" class="btn-login">Agent Workspace →</a>
     </nav>
   </header>
 
@@ -461,7 +461,7 @@
       <button onclick="triggerChatWidget()" class="btn-hero-primary">
         💬 Test Live Chat Widget
       </button>
-      <a href="/" class="btn-hero-secondary">
+      <a href="/login" class="btn-hero-secondary">
         📊 Open Agent Workspace
       </a>
     </div>
@@ -610,7 +610,7 @@
   <footer>
     <div>&copy; 2026 <strong>ChatBox Live Support SaaS</strong>. All rights reserved.</div>
     <div>
-      <a href="/">Agent Login</a> &bull;
+      <a href="/login">Agent Login</a> &bull;
       <a href="#plans">Pricing</a> &bull;
       <a href="#" onclick="triggerChatWidget(); return false;">Chat with Support</a>
     </div>
@@ -621,7 +621,7 @@
   <!-- ========================================== -->
   <script>
     const urlParams = new URLSearchParams(window.location.search);
-    const propertyKey = urlParams.get('pk') || "pk_live_chatbox_FiTEeVrRTkfRAuGWIhjD";
+    const propertyKey = urlParams.get('pk') || "pk_live_salutehost_shGEXXUkoYhpUaDG";
     
     document.getElementById('display-pk').textContent = propertyKey;
     const snippetPk = document.getElementById('snippet-pk');
