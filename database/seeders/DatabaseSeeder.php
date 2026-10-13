@@ -12,6 +12,7 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Models\Visitor;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
@@ -206,20 +207,6 @@ class DatabaseSeeder extends Seeder
             ]
         );
 
-        $saluteFaqs = [
-            ['Technical', 'How long does Cloud VPS / Server deployment take?', 'Cloud instances are deployed instantly within 60 seconds after payment confirmation.', 1],
-            ['Billing', "What is SaluteHost's refund policy?", 'We offer a 100% money-back guarantee within 7 days on shared and cloud hosting plans with no questions asked.', 2],
-            ['Technical', 'Do you provide free SSL certificates with hosting?', 'Yes! All SaluteHost domains come with automated, lifetime free Let\'s Encrypt SSL certificates.', 3],
-            ['Technical', 'Can I upgrade my VPS resources (RAM/CPU/SSD) anytime?', 'Yes, you can scale your CPU cores, RAM, and NVMe SSD anytime seamlessly with zero data loss directly from your client portal.', 4],
-            ['General', 'Do you offer free website migration to SaluteHost?', 'Yes, our expert technical team provides free cPanel-to-cPanel website migration with zero downtime.', 5],
-            ['General', 'How can I connect with 24/7 human technical support?', 'You can chat with our online engineers right here in this chatbox, or email support@salutehost.com anytime 24/7.', 6],
-        ];
-
-        foreach ($saluteFaqs as [$cat, $q, $a, $ord]) {
-            Faq::firstOrCreate(
-                ['property_id' => $saluteProp->id, 'question' => $q],
-                ['category' => $cat, 'answer' => $a, 'order' => $ord, 'is_active' => true]
-            );
-        }
+        Artisan::call('salutehost:sync-faqs');
     }
 }
