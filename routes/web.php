@@ -5,7 +5,12 @@ use Illuminate\Support\Facades\Route;
 
 // Home Page: ChatBox SaaS Showcase & Live Demo
 Route::get('/', function () {
-    return response()->file(public_path('demo.html'));
+    $prop = Property::where('public_key', 'pk_live_chatbox_FiTEeVrRTkfRAuGWIhjD')->first()
+        ?? Property::where('is_active', true)->first();
+    $pk = $prop ? $prop->public_key : 'pk_live_chatbox_FiTEeVrRTkfRAuGWIhjD';
+    $html = file_get_contents(public_path('demo.html'));
+    $html = str_replace('__SERVER_PROPERTY_KEY__', $pk, $html);
+    return response($html)->header('Content-Type', 'text/html');
 });
 
 // Agent Workspace & Sign In Portal

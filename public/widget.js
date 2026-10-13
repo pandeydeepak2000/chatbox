@@ -539,7 +539,9 @@
 
       <!-- Body / Messages -->
       <div class="jix-body" id="jix-body">
-        <!-- Rendered dynamically -->
+        <div style="display:flex; align-items:center; justify-content:center; height:100%; color:#94a3b8; font-size:13px;">
+          <span>Loading chat...</span>
+        </div>
       </div>
 
       <!-- Footer Input -->
@@ -969,7 +971,17 @@
       }
 
       const json = await res.json();
-      if (!json.success) return;
+      if (!json.success) {
+        console.warn('[ChatBox] Init response:', json.message);
+        chatBody.innerHTML = `
+          <div style="padding: 40px 20px; text-align: center; color: #64748b; font-size: 13px;">
+            <div style="font-size: 26px; margin-bottom: 8px;">💬</div>
+            <div style="font-weight: 700; color: #1e293b; margin-bottom: 6px;">Live Support</div>
+            <div>${json.message || 'Connecting to support...'}</div>
+          </div>
+        `;
+        return;
+      }
 
       const data = json.data;
       state.visitor = data.visitor;
@@ -1004,6 +1016,13 @@
       render();
     } catch (err) {
       console.error('[JixChat] Initialization failed:', err);
+      chatBody.innerHTML = `
+        <div style="padding: 40px 20px; text-align: center; color: #64748b; font-size: 13px;">
+          <div style="font-size: 26px; margin-bottom: 8px;">⚠️</div>
+          <div style="font-weight: 700; color: #1e293b; margin-bottom: 6px;">Connection Error</div>
+          <div>Please refresh the page to restart live chat.</div>
+        </div>
+      `;
     }
   }
 
