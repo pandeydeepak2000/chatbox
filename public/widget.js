@@ -516,7 +516,7 @@
           </div>
         </div>
         <div class="jix-header-actions">
-          <button class="jix-icon-btn" id="jix-faq-modal-btn" title="Instant FAQs & Help" style="font-size: 13px; font-weight: 700;">
+          <button class="jix-icon-btn" id="jix-faq-modal-btn" title="Instant FAQs & Help" style="display: none;">
             ❓
           </button>
           <button class="jix-icon-btn" id="jix-sound-toggle" title="Toggle Sound">
@@ -708,58 +708,12 @@
           <!-- Anti-Bot Honeypot Trap (Invisible to humans, catches automated bots) -->
           <input type="text" id="jix-bot-trap" name="_bot_trap" style="position:absolute!important;opacity:0!important;pointer-events:none!important;left:-9999px!important;top:-9999px!important;" tabindex="-1" autocomplete="off" />
           <button class="jix-btn" id="jix-prechat-submit">Start Chat</button>
-
-          ${state.faqs && state.faqs.length > 0 ? `
-            <div style="margin-top: 18px; padding-top: 14px; border-top: 1px solid #e2e8f0;">
-              <div style="font-size: 11.5px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px; display: flex; align-items: center; gap: 5px;">
-                <span>💡 Instant Help &amp; FAQs</span>
-              </div>
-              <div id="jix-faq-list">
-                ${state.faqs.map((f, i) => `
-                  <div class="jix-faq-item" data-faq-idx="${i}">
-                    <div class="jix-faq-question">
-                      <span>${f.question}</span>
-                      <span style="font-size: 12px; color: #94a3b8;">▾</span>
-                    </div>
-                    <div class="jix-faq-answer">
-                      ${f.answer}
-                      <div style="margin-top: 10px; border-top: 1px dashed #e2e8f0; padding-top: 6px;">
-                        <button type="button" class="jix-faq-prefill-btn" data-q="${encodeURIComponent(f.question)}" style="background:none; border:none; padding:0; color:var(--primary,#2563eb); font-size:11.5px; font-weight:600; cursor:pointer;">
-                          💬 Need more help? Start chat about this →
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                `).join('')}
-              </div>
-            </div>
-          ` : ''}
         </div>
       `;
       chatBody.innerHTML = formHtml;
 
       shadow.getElementById('jix-prechat-submit').addEventListener('click', handlePrechatSubmit);
 
-      // Attach FAQ click handlers
-      shadow.querySelectorAll('.jix-faq-question').forEach(q => {
-        q.addEventListener('click', () => {
-          q.parentElement.classList.toggle('open');
-        });
-      });
-
-      // Prefill question into pre-chat message field
-      shadow.querySelectorAll('.jix-faq-prefill-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const qText = decodeURIComponent(btn.getAttribute('data-q') || '');
-          const msgInput = shadow.getElementById('jix-prechat-msg');
-          if (msgInput) {
-            msgInput.value = 'I have a question regarding: ' + qText;
-            msgInput.focus();
-            msgInput.scrollIntoView({ behavior: 'smooth' });
-          }
-        });
-      });
       return;
     }
 
@@ -779,13 +733,22 @@
 
   function appendMessageToDOM(msg, playSound = false) {
     const isVisitor = msg.sender_type === 'visitor';
+    const isBot = msg.sender_type === 'bot';
     const msgEl = document.createElement('div');
     msgEl.className = `jix-msg ${isVisitor ? 'visitor' : 'agent'}`;
 
     const time = new Date(msg.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const botBadge = isBot ? '<div style="font-size:10.5px; font-weight:700; color:#4f46e5; margin-bottom:5px; display:flex; align-items:center; gap:4px;">🤖 BOT ASSISTANT</div>' : '';
+
+    // Convert newlines to <br> for clean formatting
+    const formattedContent = (msg.content || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br/>');
 
     msgEl.innerHTML = `
-      <div class="jix-msg-bubble">${msg.content}</div>
+      <div class="jix-msg-bubble">${botBadge}${formattedContent}</div>
       <div class="jix-msg-meta">${time}</div>
     `;
 
@@ -912,6 +875,11 @@
         // Replace temp msg
         const idx = state.messages.findIndex(m => m.id === optimisticMsg.id);
         if (idx !== -1) state.messages[idx] = json.data;
+
+        if (json.bot_reply && !state.messages.some(m => m.id === json.bot_reply.id)) {
+          state.messages.push(json.bot_reply);
+          appendMessageToDOM(json.bot_reply, true);
+        }
       }
     } catch (err) {
       console.error('Failed to send message:', err);

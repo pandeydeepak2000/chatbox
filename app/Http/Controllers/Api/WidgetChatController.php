@@ -7,6 +7,7 @@ use App\Events\MessageSent;
 use App\Events\TypingEvent;
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
+use App\Models\Faq;
 use App\Models\Message;
 use App\Models\Property;
 use App\Models\Visitor;
@@ -229,6 +230,35 @@ class WidgetChatController extends Controller
             'is_read' => false,
         ]);
 
+        // Intelligent FAQ / Knowledge Base Matcher & Human Agent Dispatch
+        $botReplyContent = null;
+        if ($this->wantsHumanAgent($sanitizedContent)) {
+            $botReplyContent = "🤝 Connecting you with our live support team... An agent will be with you shortly!";
+        } else {
+            $matchedFaq = $this->findFaqMatch($property, $sanitizedContent);
+            if ($matchedFaq) {
+                $botReplyContent = $matchedFaq->answer . "\n\n💡 _Need to speak with a human support agent? Reply 'Talk to agent' anytime._";
+            } else {
+                $botReplyContent = "👋 Thanks for contacting us! We've received your inquiry and our support team has been notified.";
+            }
+        }
+
+        if ($botReplyContent) {
+            $botMessage = Message::create([
+                'conversation_id' => $conversation->id,
+                'sender_type' => 'bot',
+                'message_type' => 'text',
+                'content' => $botReplyContent,
+                'is_read' => true,
+            ]);
+
+            try {
+                broadcast(new MessageSent($botMessage))->toOthers();
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('WebSocket broadcast skipped for bot message: ' . $e->getMessage());
+            }
+        }
+
         $conversation->load(['visitor', 'department', 'messages']);
 
         // Realtime Event: Alert all online agents in this property
@@ -245,6 +275,7 @@ class WidgetChatController extends Controller
             'data' => [
                 'conversation' => $conversation,
                 'message' => $message,
+                'bot_reply' => $botMessage ?? null,
             ],
         ], 201);
     }
@@ -312,9 +343,39 @@ class WidgetChatController extends Controller
             \Illuminate\Support\Facades\Log::warning('WebSocket broadcast skipped: ' . $e->getMessage());
         }
 
+        // If no human agent is actively assigned yet, check for automated FAQ answer
+        if (empty($conversation->assigned_agent_id)) {
+            $botReplyContent = null;
+            if ($this->wantsHumanAgent($cleanContent)) {
+                $botReplyContent = "🤝 An online support agent has been notified and will respond here shortly. Please stay connected!";
+            } else {
+                $matchedFaq = $this->findFaqMatch($property, $cleanContent);
+                if ($matchedFaq) {
+                    $botReplyContent = $matchedFaq->answer . "\n\n💡 _Need to speak with a human support agent? Reply 'Talk to agent' anytime._";
+                }
+            }
+
+            if ($botReplyContent) {
+                $botMessage = Message::create([
+                    'conversation_id' => $conversation->id,
+                    'sender_type' => 'bot',
+                    'message_type' => 'text',
+                    'content' => $botReplyContent,
+                    'is_read' => true,
+                ]);
+
+                try {
+                    broadcast(new MessageSent($botMessage))->toOthers();
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('WebSocket broadcast skipped for bot message: ' . $e->getMessage());
+                }
+            }
+        }
+
         return response()->json([
             'success' => true,
             'data' => $message,
+            'bot_reply' => $botMessage ?? null,
         ], 201);
     }
 
@@ -388,5 +449,76 @@ class WidgetChatController extends Controller
         $auth = $pusher->authorizeChannel($channelName, $validated['socket_id']);
 
         return response()->json(json_decode($auth, true));
+    }
+
+    /**
+     * Check if visitor inquiry specifically requests human support assistance.
+     */
+    protected function wantsHumanAgent(string $query): bool
+    {
+        $lowered = mb_strtolower($query);
+        $humanKeywords = ['agent', 'human', 'live chat', 'support executive', 'customer care', 'representative', 'real person', 'baat karni hai', 'insan', 'executive', 'call me', 'help me live'];
+        foreach ($humanKeywords as $kw) {
+            if (mb_strpos($lowered, $kw) !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Find best matching Knowledge Base FAQ for the property based on keywords.
+     */
+    protected function findFaqMatch(Property $property, string $query): ?Faq
+    {
+        $faqs = Cache::remember("prop_faqs_all_{$property->id}", 60, function () use ($property) {
+            return $property->faqs()->where('is_active', true)->get();
+        });
+
+        if ($faqs->isEmpty()) {
+            return null;
+        }
+
+        $cleanQuery = mb_strtolower(trim($query));
+        $cleanQueryWords = preg_split('/[\s,\.\?!;:\(\)\-\_\/\+]+/u', $cleanQuery, -1, PREG_SPLIT_NO_EMPTY);
+
+        $stopWords = [
+            'kya', 'hai', 'kaise', 'karein', 'mera', 'meri', 'mere', 'aur', 'ko', 'se', 'ke', 'ki',
+            'the', 'is', 'how', 'to', 'what', 'can', 'i', 'do', 'you', 'my', 'in', 'on', 'a', 'an', 'please', 'help', 'want'
+        ];
+
+        $keywords = array_values(array_filter($cleanQueryWords, fn($w) => mb_strlen($w) >= 3 && !in_array($w, $stopWords)));
+        if (empty($keywords)) {
+            return null;
+        }
+
+        $bestMatch = null;
+        $highestScore = 0;
+
+        foreach ($faqs as $faq) {
+            $qText = mb_strtolower($faq->question);
+            $aText = mb_strtolower($faq->answer);
+            $catText = mb_strtolower($faq->category);
+
+            $score = 0;
+            foreach ($keywords as $kw) {
+                if (mb_strpos($qText, $kw) !== false) {
+                    $score += 3;
+                }
+                if (mb_strpos($catText, $kw) !== false) {
+                    $score += 2;
+                }
+                if (mb_strpos($aText, $kw) !== false) {
+                    $score += 1;
+                }
+            }
+
+            if ($score > $highestScore && $score >= 2) {
+                $highestScore = $score;
+                $bestMatch = $faq;
+            }
+        }
+
+        return $bestMatch;
     }
 }
