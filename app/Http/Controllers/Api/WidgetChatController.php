@@ -150,6 +150,41 @@ class WidgetChatController extends Controller
     }
 
     /**
+     * Ultra-fast lightweight message sync for polling fallback (Zero overhead, minimal DB load).
+     */
+    public function syncMessages(Request $request, string $id): JsonResponse
+    {
+        $token = $request->query('visitor_token');
+        $afterId = $request->query('after_id');
+
+        $conversation = Conversation::where('id', $id)
+            ->whereHas('visitor', fn($q) => $q->where('visitor_token', $token))
+            ->first();
+
+        if (! $conversation) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+
+        $query = $conversation->messages()->orderBy('created_at', 'asc');
+        if (! empty($afterId)) {
+            $lastMsg = Message::find($afterId);
+            if ($lastMsg) {
+                $query->where('created_at', '>', $lastMsg->created_at);
+            }
+        }
+
+        $newMessages = $query->take(20)->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'messages' => $newMessages,
+                'status' => $conversation->status,
+            ],
+        ]);
+    }
+
+    /**
      * Start a new conversation from the widget.
      */
     public function startConversation(Request $request): JsonResponse

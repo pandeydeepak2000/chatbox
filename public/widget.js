@@ -917,34 +917,35 @@
     }
   });
 
-  // Real-time WebSocket / Polling Setup
+  // Real-time WebSocket / Lightweight Message Sync (Low Server Resource Usage)
   function setupWebSocket() {
     if (!state.conversation) return;
 
-    // Fast fallback polling (every 3 seconds) ensuring 100% reliable message delivery even behind firewalls
     if (!window.__JixChatPollInterval) {
       window.__JixChatPollInterval = setInterval(async () => {
-        if (!state.conversation) return;
+        // Do NOT consume server CPU if chat window is closed or tab is hidden
+        if (!state.conversation || !state.isOpen || document.hidden) return;
+
         try {
-          const res = await fetch(`${API_BASE}/init`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              property_key: config.propertyKey,
-              visitor_token: state.visitor.token,
-            }),
-          });
+          const lastMsg = state.messages[state.messages.length - 1];
+          const lastId = lastMsg && !lastMsg.id.startsWith('temp_') ? lastMsg.id : '';
+          const url = `${API_BASE}/conversations/${state.conversation.id}/sync?visitor_token=${encodeURIComponent(state.visitor.token)}${lastId ? `&after_id=${encodeURIComponent(lastId)}` : ''}`;
+
+          const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
           const json = await res.json();
-          if (json.success && json.data.conversation) {
-            const serverMsgs = json.data.conversation.messages || [];
-            if (serverMsgs.length > state.messages.length) {
-              const newMsgs = serverMsgs.slice(state.messages.length);
-              state.messages = serverMsgs;
-              newMsgs.forEach(m => appendMessageToDOM(m, true));
-            }
+          if (json.success && json.data && json.data.messages) {
+            const newMsgs = json.data.messages;
+            newMsgs.forEach(m => {
+              if (!state.messages.some(existing => existing.id === m.id)) {
+                state.messages.push(m);
+                appendMessageToDOM(m, true);
+              }
+            });
           }
-        } catch (e) {}
-      }, 3000);
+        } catch (e) {
+          // Silent catch to prevent console noise
+        }
+      }, 8000); // 8s interval prevents hitting CloudLinux Entry Process limits
     }
   }
 
