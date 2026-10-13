@@ -1415,7 +1415,54 @@
       </div>
     </div>
 
-    <!-- Modal 3: Website Integration Guide -->
+    <!-- Modal 3: Add / Edit Company FAQ -->
+    <div id="modal-add-faq" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(8px); z-index:99999; align-items:center; justify-content:center;">
+      <div class="auth-card" style="width:580px; max-width:92vw;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
+          <h3 style="font-size:18px; font-weight:700; color:#0f172a;" id="faq-modal-title">📚 Add Company FAQ</h3>
+          <button onclick="closeAddFaqModal()" style="background:none; border:none; font-size:20px; cursor:pointer; color:#64748b;">✕</button>
+        </div>
+        <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">This FAQ will be automatically answered by the AI bot when visitors ask related questions, and will be available to support agents for 1-click answers.</p>
+
+        <input type="hidden" id="edit-faq-id" value="" />
+
+        <form onsubmit="event.preventDefault(); submitAddFaq();">
+          <div style="display:grid; grid-template-columns:2fr 1fr; gap:12px;">
+            <div class="form-group">
+              <label>FAQ Category</label>
+              <select class="form-input" id="new-faq-category">
+                <option value="General">General</option>
+                <option value="Domains">Domains</option>
+                <option value="Web Hosting">Web Hosting</option>
+                <option value="Billing & Payments">Billing & Payments</option>
+                <option value="Technical Support">Technical Support</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Display Order</label>
+              <input type="number" class="form-input" id="new-faq-order" value="1" min="1" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Question / Client Query *</label>
+            <input type="text" class="form-input" id="new-faq-question" required placeholder="e.g. How do I configure nameservers or SSL?" />
+          </div>
+
+          <div class="form-group">
+            <label>Answer / Solution Steps *</label>
+            <textarea class="form-input" id="new-faq-answer" required rows="5" placeholder="Enter clear, helpful answer steps. The bot will automatically reply with this answer whenever someone asks this question."></textarea>
+          </div>
+
+          <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:16px;">
+            <button type="button" class="btn-action" onclick="closeAddFaqModal()" style="padding:10px 18px;">Cancel</button>
+            <button type="submit" class="btn-primary" style="width:auto; padding:10px 22px;" id="faq-modal-submit-btn">Save FAQ</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal 4: Website Integration Guide -->
     <div id="modal-embed-guide" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(8px); z-index:99999; align-items:center; justify-content:center;">
       <div class="auth-card" style="width:680px; max-width:94vw; max-height:85vh; overflow-y:auto;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
@@ -2557,6 +2604,7 @@
               <p style="font-size:13px; color:var(--text-muted); line-height:1.5; white-space:pre-wrap;">${f.answer}</p>
             </div>
             <div style="display:flex; gap:6px;">
+              <button class="btn-action" style="padding:5px 12px; font-size:12px; color:#4338ca; border-color:#c7d2fe;" onclick="openEditFaqModal('${f.id}')">✏️ Edit</button>
               <button class="btn-action" style="padding:5px 12px; font-size:12px; color:#b91c1c; border-color:#fca5a5;" onclick="deleteBladeFaq('${f.id}')">🗑️ Delete</button>
             </div>
           </div>
@@ -2566,16 +2614,38 @@
     window.renderBladeFaqs = renderBladeFaqs;
 
     function openAddFaqModal() {
+      const modal = document.getElementById('modal-add-faq');
+      if (!modal) return;
+      document.getElementById('edit-faq-id').value = '';
+      document.getElementById('faq-modal-title').textContent = '📚 Add Company FAQ';
+      document.getElementById('faq-modal-submit-btn').textContent = 'Save FAQ';
       document.getElementById('new-faq-question').value = '';
       document.getElementById('new-faq-answer').value = '';
       document.getElementById('new-faq-category').value = 'General';
       document.getElementById('new-faq-order').value = BLADE_FAQS.length + 1;
-      document.getElementById('modal-add-faq').style.display = 'flex';
+      modal.style.display = 'flex';
     }
     window.openAddFaqModal = openAddFaqModal;
 
+    function openEditFaqModal(faqId) {
+      const faq = BLADE_FAQS.find(f => f.id === faqId);
+      if (!faq) return;
+      const modal = document.getElementById('modal-add-faq');
+      if (!modal) return;
+      document.getElementById('edit-faq-id').value = faq.id;
+      document.getElementById('faq-modal-title').textContent = '✏️ Edit Company FAQ';
+      document.getElementById('faq-modal-submit-btn').textContent = 'Update FAQ';
+      document.getElementById('new-faq-question').value = faq.question || '';
+      document.getElementById('new-faq-answer').value = faq.answer || '';
+      document.getElementById('new-faq-category').value = faq.category || 'General';
+      document.getElementById('new-faq-order').value = faq.order || 1;
+      modal.style.display = 'flex';
+    }
+    window.openEditFaqModal = openEditFaqModal;
+
     function closeAddFaqModal() {
-      document.getElementById('modal-add-faq').style.display = 'none';
+      const modal = document.getElementById('modal-add-faq');
+      if (modal) modal.style.display = 'none';
     }
     window.closeAddFaqModal = closeAddFaqModal;
 
@@ -2586,14 +2656,24 @@
         return;
       }
 
+      const editFaqId = document.getElementById('edit-faq-id')?.value;
       const q = document.getElementById('new-faq-question').value.trim();
       const a = document.getElementById('new-faq-answer').value.trim();
       const c = document.getElementById('new-faq-category').value.trim() || 'General';
       const o = parseInt(document.getElementById('new-faq-order').value) || 1;
 
+      if (!q || !a) {
+        alert('Please enter both question and answer.');
+        return;
+      }
+
+      const isEdit = !!editFaqId;
+      const url = isEdit ? `${API_BASE}/faqs/${editFaqId}` : `${API_BASE}/properties/${propId}/faqs`;
+      const method = isEdit ? 'PUT' : 'POST';
+
       try {
-        const res = await fetch(`${API_BASE}/properties/${propId}/faqs`, {
-          method: 'POST',
+        const res = await fetch(url, {
+          method: method,
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
@@ -2610,13 +2690,13 @@
         const json = await res.json();
         if (json.success) {
           closeAddFaqModal();
-          alert('FAQ created successfully and is now active for this company!');
+          alert(isEdit ? 'FAQ updated successfully!' : 'FAQ created successfully and is now active for this company!');
           loadBladeFaqs();
         } else {
-          alert(json.message || 'Failed to create FAQ.');
+          alert(json.message || 'Failed to save FAQ.');
         }
       } catch (e) {
-        alert('Server error creating FAQ.');
+        alert('Server error saving FAQ.');
       }
     }
     window.submitAddFaq = submitAddFaq;
