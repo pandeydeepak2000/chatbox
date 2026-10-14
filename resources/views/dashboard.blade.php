@@ -1097,6 +1097,9 @@
           <a class="rail-btn" id="tab-platform" onclick="switchMainView('platform')">
             <div class="rail-btn-left">⚡ Platform Control</div>
           </a>
+          <a class="rail-btn" id="tab-platform-users" onclick="openPlatformUsersDirectly()">
+            <div class="rail-btn-left">👥 User Management</div>
+          </a>
         </div>
 
         <div class="rail-section-title" id="rail-conv-title">Conversations</div>
@@ -1423,6 +1426,18 @@
         <p>Manage human agents and department assignments.</p>
       </div>
 
+      <!-- Super Admin Quick Switcher Banner -->
+      <div id="superadmin-agents-hint" style="display:none; background:#eff6ff; border:1px solid #bfdbfe; border-radius:12px; padding:14px 18px; margin-bottom:24px; font-size:13px; color:#1e40af; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span style="font-size:24px;">👥</span>
+          <div>
+            <strong style="font-size:13.5px; color:#1e3a8a;">Looking for Platform User Management?</strong>
+            <div style="color:#3b82f6; font-size:12px; margin-top:2px;">Yahan sirf current company ke frontline agents hain. Poore system ke Users, Admins, Passwords aur Roles badalne ke liye:</div>
+          </div>
+        </div>
+        <button class="btn-primary" style="padding:8px 16px; font-size:12px; width:auto; white-space:nowrap; background:#2563eb;" onclick="openPlatformUsersDirectly()">Go to User Management →</button>
+      </div>
+
       <div class="intel-card" style="max-width:600px; margin-bottom:24px;">
         <h4>Invite New Support Agent</h4>
         <div class="form-group">
@@ -1510,7 +1525,7 @@
       </div>
 
       <!-- Users & Credentials Management Table -->
-      <div class="intel-card" style="width:100%; margin-bottom:28px;">
+      <div class="intel-card" id="platform-users-card" style="width:100%; margin-bottom:28px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
           <div>
             <h4 style="margin-bottom:4px; font-size:14px;">👥 Platform Users & Access Control (Super Admin Master)</h4>
@@ -2114,6 +2129,9 @@
         const saSection = document.getElementById('rail-super-admin-section');
         if (saSection) saSection.style.display = isSuperAdmin ? 'block' : 'none';
 
+        const saHint = document.getElementById('superadmin-agents-hint');
+        if (saHint) saHint.style.display = isSuperAdmin ? 'flex' : 'none';
+
         const mgmtSection = document.getElementById('rail-management-section');
         if (mgmtSection) mgmtSection.style.display = (isAdmin || isSuperAdmin) ? 'block' : 'none';
 
@@ -2184,6 +2202,26 @@
       if (view === 'customizer') loadCustomizer();
       if (view === 'faqs') loadBladeFaqs();
     }
+
+    function openPlatformUsersDirectly() {
+      switchMainView('platform');
+      document.querySelectorAll('.rail-btn').forEach(b => b.classList.remove('active'));
+      const tab = document.getElementById('tab-platform-users');
+      if (tab) tab.classList.add('active');
+      loadPlatformUsers();
+      setTimeout(() => {
+        const card = document.getElementById('platform-users-card');
+        if (card) {
+          card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          card.style.transition = 'all 0.4s ease';
+          card.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.45), 0 10px 25px -5px rgba(0, 0, 0, 0.1)';
+          setTimeout(() => {
+            card.style.boxShadow = 'var(--shadow-sm)';
+          }, 2200);
+        }
+      }, 150);
+    }
+    window.openPlatformUsersDirectly = openPlatformUsersDirectly;
 
     function setFilter(filter) {
       CURRENT_FILTER = filter;
