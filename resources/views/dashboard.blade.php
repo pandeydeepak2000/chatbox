@@ -1121,9 +1121,13 @@
           </a>
         </div>
 
-        <div class="rail-section-title">Reports</div>
+        <div class="rail-section-title">Reports & CRM</div>
         <a class="rail-btn" id="tab-analytics" onclick="switchMainView('analytics')">
           <div class="rail-btn-left">📊 Analytics & KPIs</div>
+        </a>
+        <a class="rail-btn" id="tab-leads" onclick="switchMainView('leads')">
+          <div class="rail-btn-left">🎯 CRM &amp; Leads</div>
+          <span class="rail-badge" id="leads-count-badge" style="background:#10b981; color:#fff; display:none;">0</span>
         </a>
 
         <div class="rail-section-title" id="rail-quicklinks-title">Quick Links</div>
@@ -1145,6 +1149,7 @@
           </div>
         </div>
         <div style="display:flex; gap:4px; align-items:center;">
+          <button class="btn-logout" id="agent-sound-btn" title="Toggle Alert Sounds" onclick="toggleAgentSound()" style="font-size:13px;">🔔</button>
           <button class="btn-logout" title="My Profile & Password" onclick="openProfileModal()" style="font-size:13px;">👤</button>
           <button class="btn-logout" title="Sign Out" onclick="logout()">⏻</button>
         </div>
@@ -1187,6 +1192,8 @@
             </div>
           </div>
           <div class="chat-header-actions">
+            <button class="btn-action" id="email-transcript-btn" onclick="openTranscriptModal()" title="Email full conversation transcript">✉️ Transcript</button>
+            <button class="btn-action" id="transfer-chat-btn" onclick="openTransferModal()" title="Transfer ticket to department or agent">⇄ Transfer</button>
             <button class="btn-action success" id="assign-me-btn" onclick="assignToMe()">Assign to Me</button>
             <button class="btn-action danger" id="close-chat-btn" onclick="toggleCloseChat()">Close Ticket</button>
           </div>
@@ -1197,7 +1204,9 @@
         <div class="chat-input-wrapper">
           <div class="slash-popup" id="slash-popup"></div>
 
-          <div class="chat-box">
+          <div class="chat-box" style="display:flex; align-items:center; gap:8px;">
+            <input type="file" id="agent-file-input" style="display:none" onchange="handleAgentFileUpload(event)" accept="image/*,application/pdf,.doc,.docx,.txt,.zip" />
+            <button type="button" class="btn-action" onclick="document.getElementById('agent-file-input').click()" title="Attach image, screenshot or file" style="padding:7px 11px; font-size:16px; background:#f1f5f9; border:1px solid var(--border-color); border-radius:8px; cursor:pointer;">📎</button>
             <textarea class="chat-textarea" id="agent-input" rows="1" placeholder="Type a message or '/' for canned responses..." oninput="handleInput(event)" onkeydown="handleInputKey(event)"></textarea>
             <button class="btn-send" onclick="sendAgentMessage()">➤</button>
           </div>
@@ -1212,11 +1221,16 @@
         <div class="intel-item"><span class="intel-key">Status</span><span class="intel-val" id="intel-status">Open</span></div>
         <div class="intel-item"><span class="intel-key">Presence</span><span class="intel-val" id="intel-presence"><span style="color:#059669; font-weight:700;">🟢 Online</span></span></div>
         <div class="intel-item"><span class="intel-key">Last Active</span><span class="intel-val" id="intel-last-seen">Just now</span></div>
+        <div class="intel-item"><span class="intel-key">CSAT Rating</span><span class="intel-val" id="intel-csat"><span style="color:#94a3b8;">Pending</span></span></div>
+        <div class="intel-item"><span class="intel-key">Email</span><span class="intel-val" id="intel-email" style="word-break:break-all;">N/A</span></div>
+        <div class="intel-item"><span class="intel-key">Phone</span><span class="intel-val" id="intel-phone">N/A</span></div>
+        <div class="intel-item"><span class="intel-key">Lead Stage</span><span class="intel-val" id="intel-lead-stage"><span class="conv-tag" style="background:#eff6ff; color:#2563eb;">New</span></span></div>
         <div class="intel-item"><span class="intel-key">Location</span><span class="intel-val" id="intel-location">Mumbai, IN</span></div>
         <div class="intel-item"><span class="intel-key">IP Address</span><span class="intel-val" id="intel-ip">127.0.0.1</span></div>
         <div class="intel-item"><span class="intel-key">Browser</span><span class="intel-val" id="intel-browser">Chrome</span></div>
         <div class="intel-item"><span class="intel-key">OS</span><span class="intel-val" id="intel-os">Windows</span></div>
         <div class="intel-item"><span class="intel-key">Current Page</span><span class="intel-val" id="intel-page">/pricing</span></div>
+        <button class="btn-action danger" id="block-visitor-btn" onclick="toggleBlockCurrentVisitor()" style="width:100%; margin-top:12px; font-size:12px;">🚫 Block Visitor</button>
       </div>
 
       <div class="intel-card">
@@ -1254,6 +1268,42 @@
             <button class="btn-primary" onclick="saveWidgetConfig()">Save Changes</button>
           </div>
 
+          <div class="intel-card" style="margin-bottom:20px;">
+            <h4>🕒 Operating Hours &amp; Offline Notice</h4>
+            <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px">Automatically switch widget to 'Offline / Leave a message' mode outside working hours.</p>
+            <div class="form-group" style="display:flex; align-items:center; gap:8px;">
+              <input type="checkbox" id="cust-hours-enabled" style="width:18px; height:18px;" />
+              <label for="cust-hours-enabled" style="margin:0; font-weight:600; cursor:pointer;">Enable Operating Hours Schedule</label>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
+              <div class="form-group">
+                <label>Opening Time</label>
+                <input type="time" class="form-input" id="cust-hours-start" value="09:00" />
+              </div>
+              <div class="form-group">
+                <label>Closing Time</label>
+                <input type="time" class="form-input" id="cust-hours-end" value="18:00" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Timezone</label>
+              <select class="form-input" id="cust-hours-tz">
+                <option value="Asia/Kolkata">Asia/Kolkata (IST - India)</option>
+                <option value="UTC">UTC (Universal Time)</option>
+                <option value="America/New_York">America/New_York (EST)</option>
+                <option value="America/Los_Angeles">America/Los_Angeles (PST)</option>
+                <option value="Europe/London">Europe/London (GMT/BST)</option>
+                <option value="Asia/Dubai">Asia/Dubai (GST)</option>
+                <option value="Asia/Singapore">Asia/Singapore (SGT)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Offline Notice Message (Shown when offline)</label>
+              <textarea class="form-input" id="cust-hours-offline-notice" rows="2" placeholder="e.g. Our team is currently offline. Leave a message and we'll reply by email shortly."></textarea>
+            </div>
+            <button class="btn-primary" onclick="saveWidgetConfig()">Save Operating Hours</button>
+          </div>
+
           <div class="intel-card">
             <h4>1-Click Embed Snippet</h4>
             <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px">Paste this snippet before the &lt;/body&gt; tag on WordPress, Shopify, or custom websites:</p>
@@ -1263,12 +1313,40 @@
         </div>
 
         <div>
-          <div class="intel-card">
+          <div class="intel-card" style="margin-bottom:20px;">
             <h4>Departments</h4>
             <div id="departments-list" style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;"></div>
             <div style="display:flex; gap:8px;">
               <input type="text" class="form-input" id="new-dept-name" placeholder="New Department (e.g. Enterprise Sales)" />
               <button class="btn-action success" onclick="createDepartment()">Add</button>
+            </div>
+          </div>
+
+          <div class="intel-card" style="margin-bottom:20px;">
+            <h4>Canned Responses &amp; Shortcuts</h4>
+            <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px">Type "/" in chat to trigger these quick responses.</p>
+            <div id="customizer-canned-list" style="display:flex; flex-direction:column; gap:8px; margin-bottom:14px; max-height:200px; overflow-y:auto;"></div>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <input type="text" class="form-input" id="new-canned-shortcut" placeholder="/shortcut (e.g. /promo)" />
+              <textarea class="form-input" id="new-canned-content" placeholder="Full message text to insert..." rows="2"></textarea>
+              <button class="btn-action success" onclick="createCannedResponse()">+ Add Shortcut</button>
+            </div>
+          </div>
+
+          <div class="intel-card">
+            <h4>🔗 Real-Time Webhooks (Zapier / WhatsApp / CRM)</h4>
+            <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px">Push live notifications to your CRM, Zapier, Make.com, or WhatsApp webhook endpoint.</p>
+            <div class="form-group">
+              <label>Webhook URL (HTTP POST)</label>
+              <input type="url" class="form-input" id="cust-webhook-url" placeholder="https://hooks.zapier.com/hooks/catch/..." />
+            </div>
+            <div class="form-group">
+              <label>HMAC Secret Key (Optional, for payload verification)</label>
+              <input type="text" class="form-input" id="cust-webhook-secret" placeholder="e.g. whsec_live_abcdef123456" />
+            </div>
+            <div style="display:flex; gap:10px;">
+              <button class="btn-primary" style="flex:1" onclick="saveWidgetConfig()">Save Webhook</button>
+              <button class="btn-action" style="flex:1; background:#f1f5f9; border:1px solid var(--border-color);" onclick="triggerTestWebhook()">⚡ Send Test Ping</button>
             </div>
           </div>
         </div>
@@ -1299,6 +1377,42 @@
           <div class="stat-label">Total Visitors</div>
           <div class="stat-val" id="stat-visitors" style="color:#818cf8">0</div>
         </div>
+      </div>
+    </div>
+
+    <!-- Full View Panel: CRM & Leads -->
+    <div class="full-view-panel" id="leads-panel" style="display:none">
+      <div class="full-view-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <div>
+          <h2>🎯 Visitor Leads &amp; CRM Pipeline</h2>
+          <p>Captured prospects, contact details, initial inquiries, and conversion stages.</p>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <button class="feed-tab active" id="lead-filter-all" onclick="filterLeads('')">All Leads</button>
+          <button class="feed-tab" id="lead-filter-new" onclick="filterLeads('new')">New</button>
+          <button class="feed-tab" id="lead-filter-contacted" onclick="filterLeads('contacted')">Contacted</button>
+          <button class="feed-tab" id="lead-filter-qualified" onclick="filterLeads('qualified')">Qualified</button>
+          <button class="feed-tab" id="lead-filter-converted" onclick="filterLeads('converted')">Converted</button>
+          <button class="btn-action success" onclick="exportLeadsCsv()" style="font-weight:700; padding:6px 14px; font-size:12px; background:#10b981; color:#fff;" title="Download complete leads list in CSV/Excel">⬇️ Export Leads (CSV)</button>
+        </div>
+      </div>
+
+      <div style="background:#ffffff; border:1px solid var(--border-color); border-radius:14px; overflow:hidden; box-shadow:var(--shadow-sm); overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; text-align:left; font-size:13px; min-width:700px;">
+          <thead>
+            <tr style="background:#f8fafc; border-bottom:1px solid var(--border-color); color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">
+              <th style="padding:14px 16px;">Lead Contact</th>
+              <th style="padding:14px 16px;">Initial Inquiry</th>
+              <th style="padding:14px 16px;">Source &amp; Location</th>
+              <th style="padding:14px 16px;">Lead Stage</th>
+              <th style="padding:14px 16px;">Date</th>
+              <th style="padding:14px 16px; text-align:right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="leads-table-tbody">
+            <tr><td colspan="6" style="padding:30px; text-align:center; color:var(--text-dim)">Loading CRM leads...</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -1642,7 +1756,51 @@
             <p>In your <code>index.html</code> or <code>app/layout.tsx</code>, load <code>widget.js</code> with script config on window.</p>
           </div>
         </div>
-    <!-- Modal 4: Add Company FAQ -->
+      </div>
+    </div>
+
+    <!-- Modal: Email Chat Transcript -->
+    <div id="modal-transcript" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(8px); z-index:99999; align-items:center; justify-content:center;">
+      <div class="auth-card" style="width:440px; max-width:92vw;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+          <h3 style="font-size:18px; font-weight:700; color:#0f172a;">✉️ Email Chat Transcript</h3>
+          <button onclick="closeTranscriptModal()" style="background:none; border:none; font-size:20px; cursor:pointer; color:#64748b;">✕</button>
+        </div>
+        <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">Send full formatted conversation history directly to the customer's email inbox.</p>
+        <form onsubmit="event.preventDefault(); submitTranscript();">
+          <div class="form-group">
+            <label>Recipient Email Address *</label>
+            <input type="email" class="form-input" id="transcript-recipient-email" required placeholder="customer@example.com" />
+          </div>
+          <button type="submit" class="btn-primary" style="margin-top:10px;" id="transcript-submit-btn">Send Transcript</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal: Transfer Conversation -->
+    <div id="modal-transfer" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(8px); z-index:99999; align-items:center; justify-content:center;">
+      <div class="auth-card" style="width:440px; max-width:92vw;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+          <h3 style="font-size:18px; font-weight:700; color:#0f172a;">⇄ Transfer Conversation</h3>
+          <button onclick="closeTransferModal()" style="background:none; border:none; font-size:20px; cursor:pointer; color:#64748b;">✕</button>
+        </div>
+        <form onsubmit="event.preventDefault(); submitTransfer();">
+          <div class="form-group">
+            <label>Transfer to Department</label>
+            <select class="form-input" id="transfer-department-select">
+              <option value="">-- Keep Current Department --</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Assign to Specific Agent</label>
+            <select class="form-input" id="transfer-agent-select">
+              <option value="">-- Any Available Agent --</option>
+            </select>
+          </div>
+          <button type="submit" class="btn-primary" style="margin-top:10px;" id="transfer-submit-btn">Transfer Conversation</button>
+        </form>
+      </div>
+    </div>
     <div id="modal-add-faq" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(8px); z-index:99999; align-items:center; justify-content:center;">
       <div class="auth-card" style="width:520px; max-width:92vw;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
@@ -1982,6 +2140,7 @@
           switchMainView('inbox');
         }
 
+        initSoundButton();
         loadCannedResponses();
         loadConversations();
         loadStats();
@@ -2009,6 +2168,9 @@
       document.getElementById('customizer-panel').style.display = view === 'customizer' ? 'block' : 'none';
       document.getElementById('analytics-panel').style.display = view === 'analytics' ? 'block' : 'none';
       document.getElementById('agents-panel').style.display = view === 'agents' ? 'block' : 'none';
+      if (document.getElementById('leads-panel')) {
+        document.getElementById('leads-panel').style.display = view === 'leads' ? 'block' : 'none';
+      }
       if (document.getElementById('platform-panel')) {
         document.getElementById('platform-panel').style.display = view === 'platform' ? 'block' : 'none';
       }
@@ -2016,6 +2178,7 @@
         document.getElementById('faqs-panel').style.display = view === 'faqs' ? 'block' : 'none';
       }
 
+      if (view === 'leads') loadLeads();
       if (view === 'platform') loadPlatformData();
       if (view === 'agents') loadAgents();
       if (view === 'customizer') loadCustomizer();
@@ -2163,6 +2326,50 @@
           document.getElementById('intel-agent').textContent = ACTIVE_CONV.assigned_agent?.name || 'Unassigned';
           document.getElementById('intel-dept').textContent = ACTIVE_CONV.department?.name || 'Support';
 
+          // Contact & Lead Stage
+          const emailEl = document.getElementById('intel-email');
+          if (emailEl) emailEl.textContent = v.email || 'N/A';
+          const phoneEl = document.getElementById('intel-phone');
+          if (phoneEl) phoneEl.textContent = v.phone || 'N/A';
+          const stageEl = document.getElementById('intel-lead-stage');
+          if (stageEl) {
+            const st = (v.lead_status || 'new').toLowerCase();
+            const colors = {
+              new: 'background:#eff6ff; color:#2563eb;',
+              contacted: 'background:#fef3c7; color:#d97706;',
+              qualified: 'background:#f3e8ff; color:#7e22ce;',
+              converted: 'background:#ecfdf5; color:#059669;',
+              lost: 'background:#fef2f2; color:#dc2626;'
+            };
+            stageEl.innerHTML = `<span class="conv-tag" style="${colors[st] || colors.new}">${st.toUpperCase()}</span>`;
+          }
+
+          // CSAT Rating
+          const csatEl = document.getElementById('intel-csat');
+          if (csatEl) {
+            if (ACTIVE_CONV.rating) {
+              const stars = '⭐'.repeat(ACTIVE_CONV.rating);
+              const fb = ACTIVE_CONV.rating_feedback ? `<div style="font-size:11px; color:#64748b; margin-top:3px;">"${ACTIVE_CONV.rating_feedback}"</div>` : '';
+              csatEl.innerHTML = `<span style="color:#f59e0b; font-weight:700;">${stars} (${ACTIVE_CONV.rating}/5)</span>${fb}`;
+            } else {
+              csatEl.innerHTML = `<span style="color:#94a3b8;">Pending / Not rated</span>`;
+            }
+          }
+
+          // Block / Unblock Visitor Button
+          const blockBtn = document.getElementById('block-visitor-btn');
+          if (blockBtn) {
+            if (v.is_blocked) {
+              blockBtn.innerHTML = '✅ Unblock Visitor';
+              blockBtn.className = 'btn-action success';
+              blockBtn.style.background = '#10b981';
+            } else {
+              blockBtn.innerHTML = '🚫 Block Visitor';
+              blockBtn.className = 'btn-action danger';
+              blockBtn.style.background = '';
+            }
+          }
+
           // Assign to Me Button State Management
           const assignBtn = document.getElementById('assign-me-btn');
           const isAssignedToMe = CURRENT_USER && (ACTIVE_CONV.assigned_agent_id === CURRENT_USER.id);
@@ -2218,14 +2425,25 @@
 
       messages.forEach(msg => {
         const isAgent = msg.sender_type === 'agent';
+        const isBot = msg.sender_type === 'bot';
         const group = document.createElement('div');
         group.className = `stream-bubble-group ${isAgent ? 'agent' : 'visitor'}`;
 
-        const time = new Date(msg.created_at).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
-        const sender = isAgent ? (msg.sender?.name || 'Agent') : (ACTIVE_CONV.visitor?.name || 'Visitor');
+        const time = new Date(msg.created_at || Date.now()).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+        const sender = isAgent ? (msg.sender?.name || 'Agent') : (isBot ? '🤖 Bot' : (ACTIVE_CONV.visitor?.name || 'Visitor'));
+
+        let attachmentHtml = '';
+        if (msg.attachment_url) {
+          const isImg = msg.message_type === 'image' || /\.(jpe?g|png|gif|webp|svg)($|\?)/i.test(msg.attachment_url);
+          if (isImg) {
+            attachmentHtml = `<div style="margin-top:8px;"><a href="${msg.attachment_url}" target="_blank" rel="noopener noreferrer"><img src="${msg.attachment_url}" style="max-width:280px; max-height:200px; border-radius:8px; display:block; border:1px solid rgba(0,0,0,0.1);" alt="Attachment" /></a></div>`;
+          } else {
+            attachmentHtml = `<div style="margin-top:8px;"><a href="${msg.attachment_url}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; gap:6px; background:rgba(0,0,0,0.06); padding:6px 12px; border-radius:6px; text-decoration:none; font-size:12px; font-weight:600; color:inherit;">📎 Download Document</a></div>`;
+          }
+        }
 
         group.innerHTML = `
-          <div class="stream-bubble">${msg.content}</div>
+          <div class="stream-bubble">${msg.content || ''}${attachmentHtml}</div>
           <div class="stream-meta">${sender} • ${time}</div>
         `;
         stream.appendChild(group);
@@ -2233,6 +2451,53 @@
 
       if (shouldScroll) {
         stream.scrollTop = stream.scrollHeight;
+      }
+    }
+
+    async function handleAgentFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file || !ACTIVE_CONV || !AUTH_TOKEN) return;
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        showToast('Uploading file attachment...');
+        const res = await fetch(`${API_BASE}/chat/upload`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${AUTH_TOKEN}`,
+            'Accept': 'application/json'
+          },
+          body: formData
+        });
+        const json = await res.json();
+        if (json.success) {
+          // Send message with uploaded attachment
+          const msgRes = await fetch(`${API_BASE}/chat/conversations/${ACTIVE_CONV.id}/messages`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'Authorization': `Bearer ${AUTH_TOKEN}`
+            },
+            body: JSON.stringify({
+              content: `Attached: ${json.file_name}`,
+              attachment_url: json.url,
+              message_type: json.message_type
+            })
+          });
+          const msgJson = await msgRes.json();
+          if (msgJson.success) {
+            ACTIVE_CONV.messages.push(msgJson.data);
+            renderMessages(ACTIVE_CONV.messages, true);
+            showToast('Attachment sent successfully!');
+          }
+        } else {
+          showToast(json.message || 'File upload failed', 'danger');
+        }
+      } catch(e) {
+        showToast('Error uploading attachment', 'danger');
+      } finally {
+        event.target.value = '';
       }
     }
 
@@ -2468,16 +2733,42 @@
       alert('Embed code copied to clipboard!');
     }
 
+    // =========================================================================
+    // CUSTOMIZER, OPERATING HOURS & WEBHOOKS
+    // =========================================================================
     async function loadCustomizer() {
       if (!CURRENT_PROPERTY) return;
-      document.getElementById('cust-color').value = CURRENT_PROPERTY.widget_config?.primary_color || '#2563eb';
-      document.getElementById('cust-welcome').value = CURRENT_PROPERTY.widget_config?.welcome_message || '';
+      const conf = CURRENT_PROPERTY.widget_config || {};
+      document.getElementById('cust-color').value = conf.primary_color || '#2563eb';
+      document.getElementById('cust-welcome').value = conf.welcome_message || '';
+
+      // Webhook fields
+      const whUrlEl = document.getElementById('cust-webhook-url');
+      if (whUrlEl) whUrlEl.value = conf.webhook_url || '';
+      const whSecEl = document.getElementById('cust-webhook-secret');
+      if (whSecEl) whSecEl.value = conf.webhook_secret || '';
+
+      // Operating Hours fields
+      const oph = conf.operating_hours || {};
+      const ophCheck = document.getElementById('cust-hours-enabled');
+      if (ophCheck) ophCheck.checked = Boolean(oph.enabled);
+      const ophStart = document.getElementById('cust-hours-start');
+      if (ophStart) ophStart.value = oph.start || '09:00';
+      const ophEnd = document.getElementById('cust-hours-end');
+      if (ophEnd) ophEnd.value = oph.end || '18:00';
+      const ophTz = document.getElementById('cust-hours-tz');
+      if (ophTz) ophTz.value = oph.timezone || 'Asia/Kolkata';
+      const ophNotice = document.getElementById('cust-hours-offline-notice');
+      if (ophNotice) ophNotice.value = oph.offline_notice || '';
+
       renderDepartments();
+      renderCannedResponsesList();
     }
 
     function renderDepartments() {
       const depts = CURRENT_PROPERTY?.departments || [];
       const list = document.getElementById('departments-list');
+      if (!list) return;
       list.innerHTML = depts.map(d => `
         <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid var(--border-color); padding:10px 14px; border-radius:10px;">
           <span style="font-weight:600; color:#0f172a;">🏷️ ${d.name}</span>
@@ -2506,6 +2797,85 @@
         CURRENT_PROPERTY.departments.push(json.data);
         renderDepartments();
         input.value = '';
+        showToast('Department added successfully!');
+      } else {
+        showToast(json.message || 'Failed to add department', 'danger');
+      }
+    }
+
+    // Canned Responses in Customizer
+    function renderCannedResponsesList() {
+      const list = document.getElementById('customizer-canned-list');
+      if (!list) return;
+      if (CANNED_RESPONSES.length === 0) {
+        list.innerHTML = '<div style="font-size:12px; color:var(--text-dim); text-align:center; padding:12px;">No shortcut responses yet. Add your first below!</div>';
+        return;
+      }
+      list.innerHTML = CANNED_RESPONSES.map(c => `
+        <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid var(--border-color); padding:8px 12px; border-radius:8px; font-size:12px;">
+          <div>
+            <strong style="color:#2563eb;">${c.shortcut}</strong>:
+            <span style="color:#334155; margin-left:4px;">${c.content.substring(0, 36)}${c.content.length > 36 ? '...' : ''}</span>
+          </div>
+          <button onclick="deleteCannedResponse('${c.id}')" style="background:none; border:none; color:#ef4444; cursor:pointer; font-size:12px; font-weight:600;">✕ Delete</button>
+        </div>
+      `).join('');
+    }
+
+    async function createCannedResponse() {
+      const shortcutInput = document.getElementById('new-canned-shortcut');
+      const contentInput = document.getElementById('new-canned-content');
+      const shortcut = shortcutInput.value.trim();
+      const content = contentInput.value.trim();
+      if (!shortcut || !content || !CURRENT_PROPERTY) {
+        alert('Please enter both shortcut (e.g. /greeting) and response text.');
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE}/properties/${CURRENT_PROPERTY.id}/canned-responses`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${AUTH_TOKEN}`
+          },
+          body: JSON.stringify({ shortcut, content })
+        });
+        const json = await res.json();
+        if (json.success) {
+          shortcutInput.value = '';
+          contentInput.value = '';
+          await loadCannedResponses();
+          renderCannedResponsesList();
+          showToast('Canned response shortcut saved!');
+        } else {
+          showToast(json.message || 'Failed to save canned response', 'danger');
+        }
+      } catch(e) {
+        showToast('Error saving canned response', 'danger');
+      }
+    }
+
+    async function deleteCannedResponse(cannedId) {
+      if (!confirm('Are you sure you want to delete this canned response shortcut?')) return;
+      try {
+        const res = await fetch(`${API_BASE}/canned-responses/${cannedId}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${AUTH_TOKEN}`,
+            'Accept': 'application/json'
+          }
+        });
+        const json = await res.json();
+        if (json.success) {
+          await loadCannedResponses();
+          renderCannedResponsesList();
+          showToast('Shortcut deleted.');
+        } else {
+          showToast(json.message || 'Failed to delete', 'danger');
+        }
+      } catch(e) {
+        showToast('Error deleting shortcut', 'danger');
       }
     }
 
@@ -2514,27 +2884,423 @@
       const color = document.getElementById('cust-color').value;
       const welcome = document.getElementById('cust-welcome').value;
 
-      const res = await fetch(`${API_BASE}/properties/${CURRENT_PROPERTY.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${AUTH_TOKEN}`
-        },
-        body: JSON.stringify({
-          widget_config: {
-            ...CURRENT_PROPERTY.widget_config,
-            primary_color: color,
-            welcome_message: welcome
-          }
-        })
-      });
-      const json = await res.json();
-      if (json.success) {
-        alert('Widget configuration updated successfully!');
+      const whUrl = document.getElementById('cust-webhook-url')?.value.trim() || null;
+      const whSec = document.getElementById('cust-webhook-secret')?.value.trim() || null;
+
+      const ophEnabled = document.getElementById('cust-hours-enabled')?.checked || false;
+      const ophStart = document.getElementById('cust-hours-start')?.value || '09:00';
+      const ophEnd = document.getElementById('cust-hours-end')?.value || '18:00';
+      const ophTz = document.getElementById('cust-hours-tz')?.value || 'Asia/Kolkata';
+      const ophNotice = document.getElementById('cust-hours-offline-notice')?.value.trim() || '';
+
+      const updatedConfig = {
+        ...(CURRENT_PROPERTY.widget_config || {}),
+        primary_color: color,
+        welcome_message: welcome,
+        webhook_url: whUrl,
+        webhook_secret: whSec,
+        operating_hours: {
+          enabled: ophEnabled,
+          start: ophStart,
+          end: ophEnd,
+          timezone: ophTz,
+          offline_notice: ophNotice
+        }
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/properties/${CURRENT_PROPERTY.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${AUTH_TOKEN}`
+          },
+          body: JSON.stringify({ widget_config: updatedConfig })
+        });
+        const json = await res.json();
+        if (json.success) {
+          CURRENT_PROPERTY.widget_config = updatedConfig;
+          showToast('Widget configuration & settings saved successfully!');
+        } else {
+          showToast(json.message || 'Failed to save settings', 'danger');
+        }
+      } catch(e) {
+        showToast('Error saving settings', 'danger');
       }
     }
 
+    async function triggerTestWebhook() {
+      if (!CURRENT_PROPERTY) return;
+      const webhookUrl = document.getElementById('cust-webhook-url')?.value.trim();
+      const webhookSecret = document.getElementById('cust-webhook-secret')?.value.trim();
+      if (!webhookUrl) {
+        alert('Please enter a Webhook URL first.');
+        return;
+      }
+      try {
+        showToast('Sending test ping to webhook...');
+        const res = await fetch(`${API_BASE}/properties/${CURRENT_PROPERTY.id}/test-webhook`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${AUTH_TOKEN}`
+          },
+          body: JSON.stringify({
+            webhook_url: webhookUrl,
+            webhook_secret: webhookSecret
+          })
+        });
+        const json = await res.json();
+        if (json.success) {
+          showToast(json.message || 'Webhook ping delivered successfully!');
+        } else {
+          showToast(json.message || 'Webhook ping failed', 'danger');
+        }
+      } catch(e) {
+        showToast('Error testing webhook', 'danger');
+      }
+    }
+
+    // =========================================================================
+    // VISITOR BLOCKING & TICKET ACTIONS
+    // =========================================================================
+    async function toggleBlockCurrentVisitor() {
+      if (!ACTIVE_CONV || !ACTIVE_CONV.visitor || !AUTH_TOKEN) return;
+      const v = ACTIVE_CONV.visitor;
+      const willBlock = !v.is_blocked;
+      if (!confirm(willBlock ? `Block visitor "${v.name || 'Visitor'}" from sending messages?` : `Unblock visitor "${v.name || 'Visitor'}"?`)) {
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE}/chat/visitors/${v.id}/block`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${AUTH_TOKEN}`,
+            'Accept': 'application/json'
+          }
+        });
+        const json = await res.json();
+        if (json.success) {
+          v.is_blocked = json.is_blocked ?? willBlock;
+          showToast(json.message || (v.is_blocked ? 'Visitor blocked' : 'Visitor unblocked'));
+          await loadActiveConversation(ACTIVE_CONV.id, false);
+        } else {
+          showToast(json.message || 'Failed to update block status', 'danger');
+        }
+      } catch(e) {
+        showToast('Error updating visitor block status', 'danger');
+      }
+    }
+
+    // =========================================================================
+    // TRANSFER CONVERSATION
+    // =========================================================================
+    function openTransferModal() {
+      if (!ACTIVE_CONV) return;
+      // Populate departments
+      const deptSelect = document.getElementById('transfer-department-select');
+      const depts = CURRENT_PROPERTY?.departments || [];
+      deptSelect.innerHTML = '<option value="">-- Keep Current Department --</option>' +
+        depts.map(d => `<option value="${d.id}" ${ACTIVE_CONV.department_id === d.id ? 'selected' : ''}>${d.name}</option>`).join('');
+
+      // Populate agents
+      const agentSelect = document.getElementById('transfer-agent-select');
+      fetch(`${API_BASE}/agents`, {
+        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}`, 'Accept': 'application/json' }
+      }).then(r => r.json()).then(j => {
+        if (j.success) {
+          agentSelect.innerHTML = '<option value="">-- Any Available Agent --</option>' +
+            j.data.map(a => `<option value="${a.id}" ${ACTIVE_CONV.assigned_agent_id === a.id ? 'selected' : ''}>${a.name} (${a.is_online ? 'Online' : 'Offline'})</option>`).join('');
+        }
+      }).catch(() => {});
+
+      document.getElementById('modal-transfer').style.display = 'flex';
+    }
+
+    function closeTransferModal() {
+      document.getElementById('modal-transfer').style.display = 'none';
+    }
+
+    async function submitTransfer() {
+      if (!ACTIVE_CONV || !AUTH_TOKEN) return;
+      const deptId = document.getElementById('transfer-department-select').value || null;
+      const agentId = document.getElementById('transfer-agent-select').value || null;
+      const btn = document.getElementById('transfer-submit-btn');
+      btn.disabled = true;
+      btn.textContent = 'Transferring...';
+
+      try {
+        const res = await fetch(`${API_BASE}/chat/conversations/${ACTIVE_CONV.id}/transfer`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${AUTH_TOKEN}`
+          },
+          body: JSON.stringify({
+            department_id: deptId,
+            agent_id: agentId
+          })
+        });
+        const json = await res.json();
+        if (json.success) {
+          showToast('Conversation transferred successfully!');
+          closeTransferModal();
+          await loadActiveConversation(ACTIVE_CONV.id, false);
+          loadConversations();
+        } else {
+          showToast(json.message || 'Transfer failed', 'danger');
+        }
+      } catch(e) {
+        showToast('Error transferring conversation', 'danger');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Transfer Conversation';
+      }
+    }
+
+    // =========================================================================
+    // EMAIL TRANSCRIPT
+    // =========================================================================
+    function openTranscriptModal() {
+      if (!ACTIVE_CONV) return;
+      document.getElementById('transcript-recipient-email').value = ACTIVE_CONV.visitor?.email || '';
+      document.getElementById('modal-transcript').style.display = 'flex';
+    }
+
+    function closeTranscriptModal() {
+      document.getElementById('modal-transcript').style.display = 'none';
+    }
+
+    async function submitTranscript() {
+      if (!ACTIVE_CONV || !AUTH_TOKEN) return;
+      const email = document.getElementById('transcript-recipient-email').value.trim();
+      if (!email) {
+        alert('Please enter a valid recipient email.');
+        return;
+      }
+      const btn = document.getElementById('transcript-submit-btn');
+      btn.disabled = true;
+      btn.textContent = 'Sending...';
+
+      try {
+        const res = await fetch(`${API_BASE}/chat/conversations/${ACTIVE_CONV.id}/transcript`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${AUTH_TOKEN}`
+          },
+          body: JSON.stringify({ email })
+        });
+        const json = await res.json();
+        if (json.success) {
+          showToast(json.message || 'Transcript sent successfully!');
+          closeTranscriptModal();
+        } else {
+          showToast(json.message || 'Failed to send transcript', 'danger');
+        }
+      } catch(e) {
+        showToast('Error sending transcript', 'danger');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Send Transcript';
+      }
+    }
+
+    // =========================================================================
+    // CRM LEADS PIPELINE & CSV EXPORT
+    // =========================================================================
+    let CURRENT_LEAD_FILTER = '';
+    async function loadLeads(statusFilter = '') {
+      if (!AUTH_TOKEN) return;
+      CURRENT_LEAD_FILTER = statusFilter;
+      const tbody = document.getElementById('leads-table-tbody');
+      if (!tbody) return;
+      tbody.innerHTML = '<tr><td colspan="6" style="padding:30px; text-align:center; color:var(--text-dim)">Loading CRM leads...</td></tr>';
+
+      try {
+        const url = statusFilter ? `${API_BASE}/crm/leads?status=${statusFilter}` : `${API_BASE}/crm/leads`;
+        const res = await fetch(url, {
+          headers: {
+            'Authorization': `Bearer ${AUTH_TOKEN}`,
+            'Accept': 'application/json'
+          }
+        });
+        const json = await res.json();
+        if (json.success) {
+          const leads = json.data || [];
+          if (leads.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="padding:30px; text-align:center; color:var(--text-dim)">No captured leads found.</td></tr>';
+            return;
+          }
+
+          tbody.innerHTML = leads.map(l => {
+            const dateStr = l.created_at ? new Date(l.created_at).toLocaleDateString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : 'Recent';
+            const loc = [l.city, l.country_code].filter(Boolean).join(', ') || 'Online';
+            const st = (l.lead_status || 'new').toLowerCase();
+            return `
+              <tr style="border-bottom:1px solid var(--border-color); font-size:13px;">
+                <td style="padding:14px 16px;">
+                  <strong style="color:#0f172a; display:block;">${l.name || 'Anonymous'}</strong>
+                  <div style="font-size:12px; color:var(--text-muted);">${l.email || 'No email'} &bull; ${l.phone || 'No phone'}</div>
+                </td>
+                <td style="padding:14px 16px; max-width:260px;">
+                  <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#334155;" title="${l.initial_inquiry}">${l.initial_inquiry}</div>
+                  <div style="font-size:11px; color:#94a3b8; margin-top:2px;">Site: ${l.property_name || 'Website'}</div>
+                </td>
+                <td style="padding:14px 16px;">
+                  <span style="font-weight:600;">${loc}</span>
+                  <div style="font-size:11px; color:#94a3b8;">${l.browser || ''} ${l.os || ''} &bull; ${l.ip_address || ''}</div>
+                </td>
+                <td style="padding:14px 16px;">
+                  <select onchange="updateLeadStatus('${l.id}', this.value)" style="padding:4px 8px; border-radius:6px; border:1px solid var(--border-color); font-size:12px; font-weight:600; background:#fff; cursor:pointer;">
+                    <option value="new" ${st === 'new' ? 'selected' : ''}>NEW</option>
+                    <option value="contacted" ${st === 'contacted' ? 'selected' : ''}>CONTACTED</option>
+                    <option value="qualified" ${st === 'qualified' ? 'selected' : ''}>QUALIFIED</option>
+                    <option value="converted" ${st === 'converted' ? 'selected' : ''}>CONVERTED</option>
+                    <option value="lost" ${st === 'lost' ? 'selected' : ''}>LOST</option>
+                  </select>
+                </td>
+                <td style="padding:14px 16px; color:var(--text-muted); font-size:12px;">${dateStr}</td>
+                <td style="padding:14px 16px; text-align:right;">
+                  <button onclick="deleteLead('${l.id}')" style="background:none; border:none; color:#ef4444; font-size:12px; cursor:pointer; font-weight:600;">Delete</button>
+                </td>
+              </tr>
+            `;
+          }).join('');
+        }
+      } catch(e) {
+        tbody.innerHTML = '<tr><td colspan="6" style="padding:30px; text-align:center; color:#ef4444">Failed to load CRM leads.</td></tr>';
+      }
+    }
+
+    function filterLeads(status) {
+      document.querySelectorAll('#leads-panel .feed-tab').forEach(b => b.classList.remove('active'));
+      const id = status ? `lead-filter-${status}` : 'lead-filter-all';
+      const el = document.getElementById(id);
+      if (el) el.classList.add('active');
+      loadLeads(status);
+    }
+
+    async function updateLeadStatus(leadId, newStatus) {
+      try {
+        const res = await fetch(`${API_BASE}/crm/leads/${leadId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${AUTH_TOKEN}`
+          },
+          body: JSON.stringify({ lead_status: newStatus })
+        });
+        const json = await res.json();
+        if (json.success) {
+          showToast(`Lead stage updated to ${newStatus.toUpperCase()}`);
+        } else {
+          showToast(json.message || 'Update failed', 'danger');
+        }
+      } catch(e) {
+        showToast('Error updating lead status', 'danger');
+      }
+    }
+
+    async function deleteLead(leadId) {
+      if (!confirm('Are you sure you want to permanently delete this lead record?')) return;
+      try {
+        const res = await fetch(`${API_BASE}/crm/leads/${leadId}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${AUTH_TOKEN}`,
+            'Accept': 'application/json'
+          }
+        });
+        const json = await res.json();
+        if (json.success) {
+          showToast('Lead deleted successfully.');
+          loadLeads(CURRENT_LEAD_FILTER);
+        } else {
+          showToast(json.message || 'Failed to delete lead', 'danger');
+        }
+      } catch(e) {
+        showToast('Error deleting lead', 'danger');
+      }
+    }
+
+    async function exportLeadsCsv() {
+      if (!AUTH_TOKEN) return;
+      try {
+        showToast('Generating CSV export file...');
+        const res = await fetch(`${API_BASE}/crm/leads/export`, {
+          headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+        });
+        if (!res.ok) throw new Error('Export failed');
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `leads_export_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        showToast('Leads CSV downloaded successfully!');
+      } catch(e) {
+        showToast('Failed to export leads', 'danger');
+      }
+    }
+
+    // =========================================================================
+    // AUDIO PING & SOUND TOGGLE
+    // =========================================================================
+    let AGENT_SOUND_MUTED = localStorage.getItem('agent_sound_muted') === 'true';
+
+    function initSoundButton() {
+      const btn = document.getElementById('agent-sound-btn');
+      if (!btn) return;
+      if (AGENT_SOUND_MUTED) {
+        btn.innerHTML = '🔕 Sound Muted';
+        btn.style.opacity = '0.6';
+      } else {
+        btn.innerHTML = '🔔 Sound Alerts: ON';
+        btn.style.opacity = '1';
+      }
+    }
+
+    function toggleAgentSound() {
+      AGENT_SOUND_MUTED = !AGENT_SOUND_MUTED;
+      localStorage.setItem('agent_sound_muted', AGENT_SOUND_MUTED ? 'true' : 'false');
+      initSoundButton();
+      showToast(AGENT_SOUND_MUTED ? 'Chat sound alerts muted' : 'Chat sound alerts enabled');
+    }
+
+    function playAudioPing() {
+      if (AGENT_SOUND_MUTED) return;
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12);
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.35);
+      } catch(e) {
+        console.warn('Audio ping failed', e);
+      }
+    }
+
+    // =========================================================================
+    // AGENT MANAGEMENT (LIST & REMOVE)
+    // =========================================================================
     async function loadAgents() {
       const res = await fetch(`${API_BASE}/agents`, {
         headers: { 
@@ -2545,17 +3311,46 @@
       const json = await res.json();
       if (json.success) {
         const list = document.getElementById('agents-list');
-        list.innerHTML = json.data.map(a => `
-          <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid var(--border-color); padding:12px 16px; border-radius:10px;">
-            <div>
-              <strong style="color:#0f172a">${a.name}</strong>
-              <div style="font-size:12px; color:var(--text-muted)">${a.email}</div>
+        list.innerHTML = json.data.map(a => {
+          const isMe = CURRENT_USER && CURRENT_USER.id === a.id;
+          const removeBtn = !isMe ? `<button onclick="removeAgent('${a.id}', '${a.name.replace(/'/g, "\\'")}')" class="btn-action danger" style="font-size:11px; padding:4px 10px;">Remove</button>` : '';
+          return `
+            <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid var(--border-color); padding:12px 16px; border-radius:10px;">
+              <div>
+                <strong style="color:#0f172a">${a.name} ${isMe ? '(You)' : ''}</strong>
+                <div style="font-size:12px; color:var(--text-muted)">${a.email}</div>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span class="conv-tag" style="background:${a.is_online ? '#ecfdf5' : '#f1f5f9'}; color:${a.is_online ? '#059669' : '#64748b'}; border:1px solid ${a.is_online ? '#a7f3d0' : '#e2e8f0'}">
+                  ${a.is_online ? '● Online' : 'Offline'}
+                </span>
+                ${removeBtn}
+              </div>
             </div>
-            <span class="conv-tag" style="background:${a.is_online ? '#ecfdf5' : '#f1f5f9'}; color:${a.is_online ? '#059669' : '#64748b'}; border:1px solid ${a.is_online ? '#a7f3d0' : '#e2e8f0'}">
-              ${a.is_online ? '● Online' : 'Offline'}
-            </span>
-          </div>
-        `).join('');
+          `;
+        }).join('');
+      }
+    }
+
+    async function removeAgent(agentId, agentName) {
+      if (!confirm(`Are you sure you want to remove agent "${agentName}"?`)) return;
+      try {
+        const res = await fetch(`${API_BASE}/agents/${agentId}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${AUTH_TOKEN}`,
+            'Accept': 'application/json'
+          }
+        });
+        const json = await res.json();
+        if (json.success) {
+          showToast(`Agent "${agentName}" removed.`);
+          loadAgents();
+        } else {
+          showToast(json.message || 'Failed to remove agent', 'danger');
+        }
+      } catch(e) {
+        showToast('Error removing agent', 'danger');
       }
     }
 

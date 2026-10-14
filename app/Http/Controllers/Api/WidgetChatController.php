@@ -10,7 +10,10 @@ use App\Models\Conversation;
 use App\Models\Faq;
 use App\Models\Message;
 use App\Models\Property;
+use App\Models\User;
 use App\Models\Visitor;
+use App\Services\TranscriptService;
+use App\Services\WebhookService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -377,10 +380,15 @@ class WidgetChatController extends Controller
             'property_key' => ['required', 'string'],
             'visitor_token' => ['required', 'string'],
             'conversation_id' => ['required', 'string', 'exists:conversations,id'],
-            'content' => ['required', 'string', 'max:3000'],
+            'content' => ['nullable', 'string', 'max:3000'],
             'message_type' => ['nullable', 'string', 'in:text,image,file'],
+            'attachment_url' => ['nullable', 'string', 'max:500'],
             '_bot_trap' => ['nullable', 'string'],
         ]);
+
+        if (empty($validated['content']) && empty($validated['attachment_url'])) {
+            return response()->json(['success' => false, 'message' => 'Message content or attachment is required.'], 422);
+        }
 
         $property = Property::where('public_key', $validated['property_key'])->where('is_active', true)->firstOrFail();
 
@@ -407,7 +415,8 @@ class WidgetChatController extends Controller
         $visitor->update(['last_seen_at' => now()]);
 
         // Anti-XSS Sanitization
-        $cleanContent = htmlspecialchars(trim(strip_tags($validated['content'])), ENT_QUOTES, 'UTF-8');
+        $rawContent = $validated['content'] ?? ($validated['message_type'] === 'image' ? 'Sent an image attachment' : 'Sent a file attachment');
+        $cleanContent = htmlspecialchars(trim(strip_tags($rawContent)), ENT_QUOTES, 'UTF-8');
 
         $message = Message::create([
             'conversation_id' => $conversation->id,
@@ -415,6 +424,7 @@ class WidgetChatController extends Controller
             'sender_id' => null,
             'message_type' => $validated['message_type'] ?? 'text',
             'content' => $cleanContent,
+            'attachment_url' => $validated['attachment_url'] ?? null,
             'is_read' => false,
         ]);
 
@@ -426,6 +436,16 @@ class WidgetChatController extends Controller
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('WebSocket broadcast skipped: ' . $e->getMessage());
         }
+
+        // Real-Time Webhook Dispatch (Zapier, WhatsApp, CRM)
+        WebhookService::dispatch($property, 'message.sent', [
+            'conversation_id' => $conversation->id,
+            'sender_type' => 'visitor',
+            'sender_name' => $visitor->name,
+            'content' => $cleanContent,
+            'attachment_url' => $validated['attachment_url'] ?? null,
+            'message_type' => $validated['message_type'] ?? 'text',
+        ]);
 
         // If no human agent is actively assigned yet, check for automated FAQ answer
         if (empty($conversation->assigned_agent_id)) {
@@ -604,5 +624,149 @@ class WidgetChatController extends Controller
         }
 
         return $bestMatch;
+    }
+
+    /**
+     * Get real-time operating hours and online status for widget.
+     */
+    public function status(Request $request): JsonResponse
+    {
+        $propertyKey = $request->query('property_key');
+        if (! $propertyKey) {
+            return response()->json(['success' => false, 'message' => 'Property key required.'], 400);
+        }
+
+        $property = Property::where('public_key', $propertyKey)->where('is_active', true)->first();
+        if (! $property) {
+            return response()->json(['success' => false, 'message' => 'Property not found.'], 404);
+        }
+
+        $config = $property->widget_config ?? [];
+        $operatingHours = $config['operating_hours'] ?? [];
+        $isWithinHours = true;
+
+        if (! empty($operatingHours['enabled'])) {
+            $tz = $operatingHours['timezone'] ?? 'UTC';
+            $nowTime = now($tz)->format('H:i');
+            $start = $operatingHours['start'] ?? '09:00';
+            $end = $operatingHours['end'] ?? '18:00';
+            $isWithinHours = ($nowTime >= $start && $nowTime <= $end);
+        }
+
+        $onlineAgentsCount = User::where('tenant_id', $property->tenant_id)
+            ->where('is_online', true)
+            ->count();
+
+        $isOnline = $isWithinHours && ($onlineAgentsCount > 0);
+
+        return response()->json([
+            'success' => true,
+            'is_online' => $isOnline,
+            'online_agents' => $onlineAgentsCount,
+            'is_within_hours' => $isWithinHours,
+            'offline_notice' => $operatingHours['offline_notice'] ?? 'Our support team is currently offline. Please leave your message and email, and we will get back to you shortly!',
+            'csat_enabled' => $config['csat_enabled'] ?? true,
+            'attachments_enabled' => $config['attachments_enabled'] ?? true,
+        ]);
+    }
+
+    /**
+     * Upload screenshot or file attachment from widget.
+     */
+    public function uploadAttachment(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'property_key' => ['required', 'string'],
+            'visitor_token' => ['required', 'string'],
+            'file' => ['required', 'file', 'max:10240', 'mimes:jpeg,png,jpg,gif,webp,svg,pdf,txt,doc,docx,zip'],
+        ]);
+
+        $property = Property::where('public_key', $validated['property_key'])->where('is_active', true)->firstOrFail();
+        $visitor = Visitor::where('property_id', $property->id)->where('visitor_token', $validated['visitor_token'])->firstOrFail();
+        if ($visitor->is_blocked) {
+            return response()->json(['success' => false, 'message' => 'Access denied: Visitor is blocked.'], 403);
+        }
+
+        $file = $request->file('file');
+        $ext = strtolower($file->getClientOriginalExtension());
+        $filename = 'att_' . Str::random(24) . '.' . $ext;
+        $destPath = public_path('uploads/attachments');
+        if (! file_exists($destPath)) {
+            mkdir($destPath, 0755, true);
+        }
+        $file->move($destPath, $filename);
+
+        $isImage = in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']);
+        $url = url('uploads/attachments/' . $filename);
+
+        return response()->json([
+            'success' => true,
+            'url' => $url,
+            'file_name' => $file->getClientOriginalName(),
+            'message_type' => $isImage ? 'image' : 'file',
+        ]);
+    }
+
+    /**
+     * Post-Chat CSAT Rating & Feedback.
+     */
+    public function submitRating(Request $request, string $conversationId): JsonResponse
+    {
+        $validated = $request->validate([
+            'property_key' => ['required', 'string'],
+            'visitor_token' => ['required', 'string'],
+            'rating' => ['required', 'integer', 'min:1', 'max:5'],
+            'rating_feedback' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $property = Property::where('public_key', $validated['property_key'])->where('is_active', true)->firstOrFail();
+        $visitor = Visitor::where('property_id', $property->id)->where('visitor_token', $validated['visitor_token'])->firstOrFail();
+
+        $conversation = Conversation::where('id', $conversationId)
+            ->where('property_id', $property->id)
+            ->where('visitor_id', $visitor->id)
+            ->firstOrFail();
+
+        $conversation->update([
+            'rating' => $validated['rating'],
+            'rating_feedback' => $validated['rating_feedback'] ?? null,
+        ]);
+
+        WebhookService::dispatch($property, 'rating.submitted', [
+            'conversation_id' => $conversation->id,
+            'visitor' => ['name' => $visitor->name, 'email' => $visitor->email],
+            'rating' => $validated['rating'],
+            'feedback' => $validated['rating_feedback'] ?? '',
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Thank you! Your feedback has been recorded.',
+            'rating' => $validated['rating'],
+        ]);
+    }
+
+    /**
+     * Email Chat Transcript to Visitor.
+     */
+    public function requestTranscript(Request $request, string $conversationId): JsonResponse
+    {
+        $validated = $request->validate([
+            'property_key' => ['required', 'string'],
+            'visitor_token' => ['required', 'string'],
+            'email' => ['required', 'email', 'max:255'],
+        ]);
+
+        $property = Property::where('public_key', $validated['property_key'])->where('is_active', true)->firstOrFail();
+        $visitor = Visitor::where('property_id', $property->id)->where('visitor_token', $validated['visitor_token'])->firstOrFail();
+
+        $conversation = Conversation::where('id', $conversationId)
+            ->where('property_id', $property->id)
+            ->where('visitor_id', $visitor->id)
+            ->firstOrFail();
+
+        $result = TranscriptService::sendTranscript($conversation, $validated['email']);
+
+        return response()->json($result);
     }
 }

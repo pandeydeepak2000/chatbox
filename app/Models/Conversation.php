@@ -19,15 +19,20 @@ class Conversation extends Model
         'assigned_agent_id',
         'department_id',
         'status',
+        'rating',
+        'rating_feedback',
         'last_message_at',
         'closed_at',
+        'transcript_emailed_at',
     ];
 
     protected function casts(): array
     {
         return [
+            'rating' => 'integer',
             'last_message_at' => 'datetime',
             'closed_at' => 'datetime',
+            'transcript_emailed_at' => 'datetime',
         ];
     }
 

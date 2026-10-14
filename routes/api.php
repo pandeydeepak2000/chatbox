@@ -21,9 +21,13 @@ Route::prefix('v1')->group(function () {
     // 1. PUBLIC WIDGET API (Client Sites & Visitors)
     // =========================================================================
     Route::prefix('widget')->group(function () {
+        Route::get('status', [WidgetChatController::class, 'status']);
         Route::post('init', [WidgetChatController::class, 'init']);
         Route::post('start', [WidgetChatController::class, 'startConversation'])->middleware('throttle:widget-messages');
         Route::post('messages', [WidgetChatController::class, 'sendMessage'])->middleware('throttle:widget-messages');
+        Route::post('upload', [WidgetChatController::class, 'uploadAttachment'])->middleware('throttle:widget-messages');
+        Route::post('conversations/{id}/rate', [WidgetChatController::class, 'submitRating'])->middleware('throttle:widget-messages');
+        Route::post('conversations/{id}/transcript', [WidgetChatController::class, 'requestTranscript'])->middleware('throttle:widget-messages');
         Route::post('typing', [WidgetChatController::class, 'typing']);
         Route::post('broadcasting/auth', [WidgetChatController::class, 'authBroadcast']);
         Route::get('faqs', [WidgetChatController::class, 'faqs']);
@@ -56,6 +60,7 @@ Route::prefix('v1')->group(function () {
         // Team / Agent Management
         Route::get('agents', [AuthController::class, 'listAgents']);
         Route::post('agents', [AuthController::class, 'createAgent'])->middleware('role:admin,super_admin');
+        Route::delete('agents/{id}', [AuthController::class, 'deleteAgent'])->middleware('role:admin,super_admin');
 
         // Super Admin SaaS Platform Management
         Route::get('platform/tenants', [AuthController::class, 'platformTenants'])->middleware('role:super_admin');
@@ -71,6 +76,7 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('properties', PropertyController::class)->except(['destroy']);
         Route::delete('properties/{id}', [PropertyController::class, 'destroy'])->middleware('role:admin,super_admin');
         Route::post('properties/{id}/regenerate-keys', [PropertyController::class, 'regenerateKeys'])->middleware('role:admin,super_admin');
+        Route::post('properties/{id}/test-webhook', [AgentChatController::class, 'testWebhook'])->middleware('role:admin,super_admin');
         Route::post('properties/{id}/departments', [PropertyController::class, 'storeDepartment'])->middleware('role:admin,super_admin');
         Route::delete('departments/{id}', [PropertyController::class, 'destroyDepartment'])->middleware('role:admin,super_admin');
         Route::post('properties/{id}/canned-responses', [AgentChatController::class, 'storeCannedResponse'])->middleware('role:admin,super_admin');
@@ -82,6 +88,7 @@ Route::prefix('v1')->group(function () {
 
         // Real-Time Chat Workspace (Live Inbox)
         Route::prefix('chat')->group(function () {
+            Route::post('upload', [AgentChatController::class, 'uploadAttachment']);
             Route::post('visitors/{id}/block', [AgentChatController::class, 'toggleBlockVisitor']);
             Route::get('stats', [AgentChatController::class, 'stats']);
             Route::get('conversations', [AgentChatController::class, 'conversations']);
@@ -92,11 +99,13 @@ Route::prefix('v1')->group(function () {
             Route::post('conversations/{id}/transfer', [AgentChatController::class, 'transfer']);
             Route::post('conversations/{id}/read', [AgentChatController::class, 'markAsRead']);
             Route::post('conversations/{id}/typing', [AgentChatController::class, 'typing']);
+            Route::post('conversations/{id}/transcript', [AgentChatController::class, 'sendTranscript']);
             Route::get('canned-responses', [AgentChatController::class, 'cannedResponses']);
         });
 
         // CRM / Leads Management
         Route::prefix('crm')->group(function () {
+            Route::get('leads/export', [AgentChatController::class, 'exportLeads']);
             Route::get('leads', [AgentChatController::class, 'leads']);
             Route::put('leads/{id}', [AgentChatController::class, 'updateLead']);
             Route::delete('leads/{id}', [AgentChatController::class, 'deleteLead'])->middleware('role:admin,super_admin');

@@ -11,8 +11,12 @@ use App\Models\Message;
 use App\Models\Property;
 use App\Models\User;
 use App\Models\Visitor;
+use App\Services\TranscriptService;
+use App\Services\WebhookService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AgentChatController extends Controller
 {
@@ -200,6 +204,17 @@ class AgentChatController extends Controller
             'status' => $status,
             'closed_at' => $closedAt,
         ]);
+
+        if ($status === 'closed') {
+            WebhookService::dispatch($conversation->property, 'conversation.closed', [
+                'conversation_id' => $conversation->id,
+                'closed_by' => $user->name,
+                'visitor' => [
+                    'id' => $conversation->visitor_id,
+                    'name' => $conversation->visitor?->name,
+                ],
+            ]);
+        }
 
         return response()->json([
             'success' => true,
@@ -571,5 +586,145 @@ class AgentChatController extends Controller
         }
 
         return $query->firstOrFail();
+    }
+
+    /**
+     * Upload screenshot or file attachment from agent inbox.
+     */
+    public function uploadAttachment(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'file' => ['required', 'file', 'max:10240', 'mimes:jpeg,png,jpg,gif,webp,svg,pdf,txt,doc,docx,zip'],
+        ]);
+
+        $file = $request->file('file');
+        $ext = strtolower($file->getClientOriginalExtension());
+        $filename = 'agent_att_' . Str::random(24) . '.' . $ext;
+        $destPath = public_path('uploads/attachments');
+        if (! file_exists($destPath)) {
+            mkdir($destPath, 0755, true);
+        }
+        $file->move($destPath, $filename);
+
+        $isImage = in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']);
+        $url = url('uploads/attachments/' . $filename);
+
+        return response()->json([
+            'success' => true,
+            'url' => $url,
+            'file_name' => $file->getClientOriginalName(),
+            'message_type' => $isImage ? 'image' : 'file',
+        ]);
+    }
+
+    /**
+     * Send chat transcript from agent inbox to customer or email.
+     */
+    public function sendTranscript(Request $request, string $id): JsonResponse
+    {
+        $user = $request->user();
+        $conversation = $this->findAuthorizedConversation($user, $id);
+
+        $validated = $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+        ]);
+
+        $result = TranscriptService::sendTranscript($conversation, $validated['email']);
+
+        return response()->json($result);
+    }
+
+    /**
+     * Export captured CRM leads to formatted CSV.
+     */
+    public function exportLeads(Request $request): StreamedResponse
+    {
+        $user = $request->user();
+        $query = Visitor::with(['property', 'conversations.messages' => function ($q) {
+            $q->latest()->limit(1);
+        }])->orderBy('created_at', 'desc');
+
+        if (! $user->isSuperAdmin()) {
+            $query->whereHas('property', function ($q) use ($user) {
+                $q->where('tenant_id', $user->tenant_id);
+            });
+        }
+
+        $leads = $query->get();
+
+        $headers = [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="chatbox_leads_' . date('Y-m-d_His') . '.csv"',
+            'Pragma' => 'no-cache',
+            'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
+            'Expires' => '0',
+        ];
+
+        return response()->stream(function () use ($leads) {
+            $handle = fopen('php://output', 'w');
+            fputs($handle, "\xEF\xBB\xBF"); // UTF-8 BOM
+            fputcsv($handle, [
+                'Lead ID',
+                'Name',
+                'Email',
+                'Phone',
+                'Initial Inquiry / Latest Message',
+                'Lead Stage',
+                'Property / Website',
+                'City',
+                'Country',
+                'IP Address',
+                'Browser',
+                'OS',
+                'Landing Page URL',
+                'Date Captured',
+            ]);
+
+            foreach ($leads as $visitor) {
+                $meta = $visitor->metadata ?? [];
+                $latestConv = $visitor->conversations->first();
+                $latestMsg = $latestConv?->messages?->first()?->content;
+
+                fputcsv($handle, [
+                    $visitor->id,
+                    $visitor->name ?: 'Anonymous',
+                    $visitor->email ?: 'N/A',
+                    $visitor->phone ?: 'N/A',
+                    $meta['initial_inquiry'] ?? $latestMsg ?? '',
+                    strtoupper($meta['lead_status'] ?? 'NEW'),
+                    $visitor->property?->site_name ?? 'Website',
+                    $visitor->city ?: '',
+                    $visitor->country_code ?: '',
+                    $visitor->ip_address ?: '',
+                    $visitor->browser ?: '',
+                    $visitor->os ?: '',
+                    $visitor->current_page_url ?: '',
+                    $visitor->created_at ? $visitor->created_at->format('Y-m-d H:i:s') : '',
+                ]);
+            }
+            fclose($handle);
+        }, 200, $headers);
+    }
+
+    /**
+     * Send test ping to verify Webhook URL.
+     */
+    public function testWebhook(Request $request, string $propertyId): JsonResponse
+    {
+        $user = $request->user();
+        $property = Property::where('id', $propertyId);
+        if (! $user->isSuperAdmin()) {
+            $property->where('tenant_id', $user->tenant_id);
+        }
+        $prop = $property->firstOrFail();
+
+        $validated = $request->validate([
+            'webhook_url' => ['required', 'url'],
+            'webhook_secret' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $result = WebhookService::testPing($validated['webhook_url'], $validated['webhook_secret'] ?? null);
+
+        return response()->json($result);
     }
 }

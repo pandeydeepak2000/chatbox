@@ -311,6 +311,34 @@ class AuthController extends Controller
     }
 
     /**
+     * Delete an Agent from Tenant.
+     */
+    public function deleteAgent(Request $request, string $id): JsonResponse
+    {
+        $user = $request->user();
+
+        if (! $user->isAdmin() && ! $user->isSuperAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Forbidden: Only administrators can remove agents.',
+            ], 403);
+        }
+
+        $query = User::where('id', $id);
+        if (! $user->isSuperAdmin()) {
+            $query->where('tenant_id', $user->tenant_id)->where('id', '!=', $user->id);
+        }
+
+        $agent = $query->firstOrFail();
+        $agent->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Agent removed successfully.',
+        ]);
+    }
+
+    /**
      * List all Tenants across the entire SaaS Platform (Super Admin only).
      */
     public function platformTenants(Request $request): JsonResponse

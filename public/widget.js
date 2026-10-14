@@ -516,6 +516,9 @@
           </div>
         </div>
         <div class="jix-header-actions">
+          <button class="jix-icon-btn" id="jix-transcript-header-btn" title="Email me chat transcript" style="display:none; font-size:14px;">
+            ✉️
+          </button>
           <button class="jix-icon-btn" id="jix-faq-modal-btn" title="Instant FAQs & Help" style="display: none;">
             ❓
           </button>
@@ -546,6 +549,10 @@
 
       <!-- Footer Input -->
       <div class="jix-footer" id="jix-footer" style="display:none">
+        <input type="file" id="jix-file-input" style="display:none" accept="image/*,application/pdf,.doc,.docx,.txt" />
+        <button class="jix-icon-btn" id="jix-attach-btn" title="Attach file or screenshot" style="background:none; border:none; cursor:pointer; font-size:16px; padding:0 6px; color:#64748b;">
+          📎
+        </button>
         <div class="jix-input-box">
           <input type="text" class="jix-chat-input" id="jix-chat-input" placeholder="Type your message..." autocomplete="off" />
         </div>
@@ -570,6 +577,9 @@
   const chatFooter = shadow.getElementById('jix-footer');
   const chatInput = shadow.getElementById('jix-chat-input');
   const sendBtn = shadow.getElementById('jix-send-btn');
+  const attachBtn = shadow.getElementById('jix-attach-btn');
+  const fileInput = shadow.getElementById('jix-file-input');
+  const transcriptHeaderBtn = shadow.getElementById('jix-transcript-header-btn');
   const badgeEl = shadow.getElementById('jix-badge');
   const headerTitleEl = shadow.getElementById('jix-header-title');
 
@@ -676,7 +686,14 @@
     if (!state.conversation) {
       // Render Pre-Chat Form
       chatFooter.style.display = 'none';
+      if (transcriptHeaderBtn) transcriptHeaderBtn.style.display = 'none';
+
       const welcome = state.property?.widget_config?.welcome_message || 'Hello! How can we assist you today?';
+      const isOnline = state.isOnline !== false;
+      const offlineMsg = state.offlineNotice || "Our support team is currently offline. Send us a message and we'll reply to your email shortly!";
+      const offlineNoticeHtml = !isOnline 
+        ? `<div style="background:#fffbeb; color:#92400e; padding:10px 14px; border-radius:10px; font-size:12px; margin-bottom:14px; border:1px solid #fde68a; line-height:1.4;">🌙 <strong>We're currently away</strong><div style="font-size:11.5px; opacity:0.9; margin-top:2px;">${offlineMsg}</div></div>` 
+        : '';
       
       let deptOptions = '';
       if (state.departments && state.departments.length > 0) {
@@ -692,35 +709,38 @@
 
       const formHtml = `
         <div class="jix-prechat">
-          <h4>Start a Conversation</h4>
+          ${offlineNoticeHtml}
+          <h4>${isOnline ? 'Start a Conversation' : 'Leave a Message'}</h4>
           <p>${welcome}</p>
           <div class="jix-form-group">
-            <label>Your Name</label>
-            <input type="text" class="jix-input" id="jix-prechat-name" placeholder="John Doe" value="${state.visitor?.name || ''}" />
+            <label>Your Name *</label>
+            <input type="text" class="jix-input" id="jix-prechat-name" placeholder="John Doe" value="${state.visitor?.name || ''}" required />
           </div>
           <div class="jix-form-group">
-            <label>Email Address</label>
-            <input type="email" class="jix-input" id="jix-prechat-email" placeholder="john@example.com" value="${state.visitor?.email || ''}" />
+            <label>Email Address *</label>
+            <input type="email" class="jix-input" id="jix-prechat-email" placeholder="john@example.com" value="${state.visitor?.email || ''}" required />
           </div>
           ${deptOptions}
           <div class="jix-form-group">
-            <label>How can we help?</label>
-            <textarea class="jix-textarea" id="jix-prechat-msg" rows="3" placeholder="Write your question here..."></textarea>
+            <label>How can we help? *</label>
+            <textarea class="jix-textarea" id="jix-prechat-msg" rows="3" placeholder="Write your question or request here..." required></textarea>
           </div>
           <!-- Anti-Bot Honeypot Trap (Invisible to humans, catches automated bots) -->
           <input type="text" id="jix-bot-trap" name="_bot_trap" style="position:absolute!important;opacity:0!important;pointer-events:none!important;left:-9999px!important;top:-9999px!important;" tabindex="-1" autocomplete="off" />
-          <button class="jix-btn" id="jix-prechat-submit">Start Chat</button>
+          <button class="jix-btn" id="jix-prechat-submit">${isOnline ? 'Start Chat' : 'Send Message'}</button>
         </div>
       `;
       chatBody.innerHTML = formHtml;
 
       shadow.getElementById('jix-prechat-submit').addEventListener('click', handlePrechatSubmit);
-
       return;
     }
 
     // Has Active Conversation
-    chatFooter.style.display = 'flex';
+    if (transcriptHeaderBtn) transcriptHeaderBtn.style.display = 'inline-flex';
+
+    const isClosed = state.conversation.status === 'closed';
+    chatFooter.style.display = isClosed ? 'none' : 'flex';
 
     state.messages.forEach(msg => {
       appendMessageToDOM(msg, false);
@@ -730,7 +750,88 @@
       appendTypingToDOM();
     }
 
+    // Post-Chat CSAT Rating Experience
+    if (isClosed) {
+      renderCsatCard();
+    }
+
     scrollToBottom();
+  }
+
+  function renderCsatCard() {
+    const existing = shadow.getElementById('jix-csat-card');
+    if (existing) return;
+
+    const csatCard = document.createElement('div');
+    csatCard.id = 'jix-csat-card';
+    csatCard.style.cssText = 'background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:16px; margin:16px 8px; text-align:center; box-shadow:0 2px 8px rgba(0,0,0,0.04);';
+
+    if (state.conversation.rating) {
+      csatCard.innerHTML = `
+        <div style="font-weight:700; font-size:13px; color:#0f172a; margin-bottom:4px;">Thank you for your rating!</div>
+        <div style="font-size:22px; color:#f59e0b; margin-bottom:6px;">${'⭐'.repeat(state.conversation.rating)}</div>
+        <div style="font-size:11.5px; color:#64748b; margin-bottom:12px;">This support session is now resolved.</div>
+        <button id="jix-csat-email-transcript-btn" style="background:#e2e8f0; color:#334155; border:none; padding:6px 14px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer;">✉️ Email My Transcript</button>
+      `;
+      chatBody.appendChild(csatCard);
+      shadow.getElementById('jix-csat-email-transcript-btn')?.addEventListener('click', handleRequestTranscript);
+      return;
+    }
+
+    csatCard.innerHTML = `
+      <div style="font-weight:700; font-size:14px; color:#0f172a; margin-bottom:4px;">How was our support?</div>
+      <div style="font-size:12px; color:#64748b; margin-bottom:10px;">This chat has ended. Please rate your experience:</div>
+      <div id="jix-star-rating-box" style="font-size:26px; cursor:pointer; margin-bottom:10px; letter-spacing:4px; user-select:none;">
+        <span data-star="1" style="opacity:0.4;">⭐</span>
+        <span data-star="2" style="opacity:0.4;">⭐</span>
+        <span data-star="3" style="opacity:0.4;">⭐</span>
+        <span data-star="4" style="opacity:0.4;">⭐</span>
+        <span data-star="5" style="opacity:0.4;">⭐</span>
+      </div>
+      <input type="text" id="jix-csat-comment" placeholder="Optional comments / feedback..." style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:12px; margin-bottom:10px; box-sizing:border-box;" />
+      <div style="display:flex; gap:8px; justify-content:center;">
+        <button id="jix-submit-csat" style="background:var(--primary); color:#ffffff; border:none; padding:7px 16px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer;">Submit Feedback</button>
+        <button id="jix-csat-transcript-btn" style="background:#e2e8f0; color:#334155; border:none; padding:7px 14px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer;">✉️ Transcript</button>
+      </div>
+    `;
+    chatBody.appendChild(csatCard);
+
+    let selectedStar = 5;
+    const starSpans = csatCard.querySelectorAll('#jix-star-rating-box span');
+    function updateStars(val) {
+      selectedStar = val;
+      starSpans.forEach(s => {
+        const starNum = parseInt(s.dataset.star, 10);
+        s.style.opacity = starNum <= val ? '1' : '0.3';
+      });
+    }
+    updateStars(5);
+
+    starSpans.forEach(s => {
+      s.addEventListener('click', () => updateStars(parseInt(s.dataset.star, 10)));
+    });
+
+    shadow.getElementById('jix-csat-transcript-btn')?.addEventListener('click', handleRequestTranscript);
+    shadow.getElementById('jix-submit-csat')?.addEventListener('click', async () => {
+      const comment = shadow.getElementById('jix-csat-comment')?.value.trim() || '';
+      try {
+        const res = await fetch(`${API_BASE}/conversations/${state.conversation.id}/rate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            property_key: config.propertyKey,
+            visitor_token: state.visitor.token,
+            rating: selectedStar,
+            rating_feedback: comment,
+          }),
+        });
+        const json = await res.json();
+        if (json.success) {
+          state.conversation.rating = selectedStar;
+          renderCsatCard();
+        }
+      } catch(e) {}
+    });
   }
 
   function appendMessageToDOM(msg, playSound = false) {
@@ -742,6 +843,16 @@
     const time = new Date(msg.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const botBadge = isBot ? '<div style="font-size:10.5px; font-weight:700; color:#4f46e5; margin-bottom:5px; display:flex; align-items:center; gap:4px;">🤖 BOT ASSISTANT</div>' : '';
 
+    let attachmentHtml = '';
+    if (msg.attachment_url) {
+      const isImg = msg.message_type === 'image' || /\.(jpe?g|png|gif|webp|svg)($|\?)/i.test(msg.attachment_url);
+      if (isImg) {
+        attachmentHtml = `<div style="margin-top:8px;"><a href="${msg.attachment_url}" target="_blank" rel="noopener noreferrer"><img src="${msg.attachment_url}" style="max-width:100%; border-radius:8px; display:block; max-height:180px; object-fit:cover; border:1px solid rgba(0,0,0,0.1);" alt="Attachment" /></a></div>`;
+      } else {
+        attachmentHtml = `<div style="margin-top:8px;"><a href="${msg.attachment_url}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; gap:6px; background:rgba(0,0,0,0.06); padding:6px 12px; border-radius:6px; text-decoration:none; font-size:12px; font-weight:600; color:inherit;">📎 Download Document</a></div>`;
+      }
+    }
+
     // Convert newlines to <br> for clean formatting
     const formattedContent = (msg.content || '')
       .replace(/&/g, '&amp;')
@@ -750,7 +861,7 @@
       .replace(/\n/g, '<br/>');
 
     msgEl.innerHTML = `
-      <div class="jix-msg-bubble">${botBadge}${formattedContent}</div>
+      <div class="jix-msg-bubble">${botBadge}${formattedContent}${attachmentHtml}</div>
       <div class="jix-msg-meta">${time}</div>
     `;
 
@@ -899,6 +1010,92 @@
   });
   sendBtn.addEventListener('click', handleSendMessage);
 
+  // File & Screenshot Upload Handlers
+  async function handleSendAttachment(file) {
+    if (!file || !state.conversation || !state.visitor) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('property_key', config.propertyKey);
+    formData.append('visitor_token', state.visitor.token);
+
+    if (attachBtn) {
+      attachBtn.disabled = true;
+      attachBtn.textContent = '⏳';
+    }
+
+    try {
+      const upRes = await fetch(`${API_BASE}/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+      const upJson = await upRes.json();
+      if (!upJson.success) {
+        alert(upJson.message || 'File upload failed');
+        return;
+      }
+
+      // Send message with attachment
+      const res = await fetch(`${API_BASE}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          property_key: config.propertyKey,
+          visitor_token: state.visitor.token,
+          conversation_id: state.conversation.id,
+          content: 'Sent an attachment: ' + upJson.file_name,
+          attachment_url: upJson.url,
+          message_type: upJson.message_type,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        state.messages.push(json.data);
+        appendMessageToDOM(json.data, false);
+      }
+    } catch (err) {
+      console.error('Failed to upload file:', err);
+      alert('Error uploading file. Please try again.');
+    } finally {
+      if (attachBtn) {
+        attachBtn.disabled = false;
+        attachBtn.textContent = '📎';
+      }
+      if (fileInput) fileInput.value = '';
+    }
+  }
+
+  attachBtn?.addEventListener('click', () => fileInput?.click());
+  fileInput?.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) {
+      handleSendAttachment(e.target.files[0]);
+    }
+  });
+
+  // Request Transcript Handler
+  async function handleRequestTranscript() {
+    if (!state.conversation) return;
+    const defaultEmail = state.visitor?.email || '';
+    const email = prompt('Enter your email address to receive this chat transcript:', defaultEmail);
+    if (!email || !email.includes('@')) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/conversations/${state.conversation.id}/transcript`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          property_key: config.propertyKey,
+          visitor_token: state.visitor.token,
+          email: email,
+        }),
+      });
+      const json = await res.json();
+      alert(json.message || 'Transcript sent to your email!');
+    } catch(e) {
+      alert('Error sending transcript.');
+    }
+  }
+  transcriptHeaderBtn?.addEventListener('click', handleRequestTranscript);
+
   // Debounced Typing Indicator
   let lastTypingTime = 0;
   chatInput.addEventListener('input', () => {
@@ -1007,6 +1204,22 @@
         headerTitleEl.textContent = data.property.site_name;
         shadow.getElementById('jix-avatar-text').textContent = data.property.site_name.substring(0, 2).toUpperCase();
       }
+
+      // Check Operating Hours & Real-time Agent Status
+      try {
+        const stRes = await fetch(`${API_BASE}/status?property_key=${encodeURIComponent(config.propertyKey)}`);
+        const stJson = await stRes.json();
+        if (stJson.success) {
+          state.isOnline = stJson.is_online;
+          state.offlineNotice = stJson.offline_notice;
+          const statusEl = shadow.getElementById('jix-header-status');
+          if (statusEl) {
+            statusEl.textContent = stJson.is_online 
+              ? '🟢 Online • Typically replies instantly' 
+              : '🌙 Away • Leave a message';
+          }
+        }
+      } catch (e) {}
 
       if (data.conversation) {
         state.conversation = data.conversation;
