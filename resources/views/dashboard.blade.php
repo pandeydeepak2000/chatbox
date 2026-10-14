@@ -185,6 +185,46 @@
     .btn-primary:active {
       transform: scale(0.98);
     }
+    .password-input-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+      width: 100%;
+    }
+    .password-input-wrap .form-input {
+      padding-right: 42px;
+    }
+    .btn-password-toggle {
+      position: absolute;
+      right: 10px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 15px;
+      color: #94a3b8;
+      padding: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.15s;
+    }
+    .btn-password-toggle:hover {
+      color: #0f172a;
+    }
+    .auth-card.wide {
+      width: 520px;
+      max-width: 95vw;
+    }
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 520px) {
+      .form-row {
+        grid-template-columns: 1fr;
+      }
+    }
     .auth-error {
       background: #fee2e2;
       border: 1px solid #fca5a5;
@@ -896,6 +936,9 @@
   <!-- ========================================== -->
   <!-- 1. AUTH OVERLAY (LOGIN & FORGOT PASSWORD) -->
   <!-- ========================================== -->
+  <!-- ========================================== -->
+  <!-- 1. AUTH OVERLAY (LOGIN, REGISTER & FORGOT) -->
+  <!-- ========================================== -->
   <div id="auth-overlay">
     <!-- Sign In Card -->
     <div class="auth-card" id="login-card">
@@ -912,32 +955,89 @@
       <form id="login-form" onsubmit="event.preventDefault(); submitLogin();">
         <div class="form-group">
           <label>Email Address</label>
-          <input type="email" class="form-input" id="login-email" required placeholder="ambitionmanagements@gmail.com" value="ambitionmanagements@gmail.com" />
+          <input type="email" class="form-input" id="login-email" required placeholder="name@yourcompany.com" autocomplete="username" />
         </div>
         <div class="form-group">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
             <label style="margin:0;">Password</label>
-            <a href="javascript:void(0)" onclick="toggleForgotPass(true)" style="font-size:12px; color:var(--primary); font-weight:600; text-decoration:none;">Forgot Password?</a>
+            <a href="javascript:void(0)" onclick="showAuthCard('forgot')" style="font-size:12px; color:var(--primary); font-weight:600; text-decoration:none;">Forgot Password?</a>
           </div>
-          <input type="password" class="form-input" id="login-password" required placeholder="••••••••" value="password123" />
+          <div class="password-input-wrap">
+            <input type="password" class="form-input" id="login-password" required placeholder="••••••••" autocomplete="current-password" />
+            <button type="button" class="btn-password-toggle" onclick="togglePassVisibility('login-password', this)" title="Show/Hide Password">👁</button>
+          </div>
         </div>
-        <button type="button" class="btn-primary" id="login-submit-btn" onclick="submitLogin()">Sign In to Workspace</button>
+        <button type="submit" class="btn-primary" id="login-submit-btn">Sign In to Workspace</button>
       </form>
 
-      <div class="demo-chips">
-        <div class="demo-chip-title">1-Click Demo Accounts (Instant Sign In)</div>
-        <button type="button" class="demo-chip-btn" onclick="quickLogin('ambitionmanagements@gmail.com', 'password123')">
-          <span>⚡ <strong>Super Admin</strong> (Platform Owner)</span>
-          <span style="font-size:11px; opacity:0.8; font-weight:600; color:var(--primary)">ambitionmanagements@gmail.com</span>
-        </button>
-        <button type="button" class="demo-chip-btn" onclick="quickLogin('admin@chatbox.com', 'password123')">
-          <span>👑 <strong>ChatBox Owner</strong> (Company Admin)</span>
-          <span style="font-size:11px; opacity:0.8">admin@chatbox.com</span>
-        </button>
-        <button type="button" class="demo-chip-btn" onclick="quickLogin('rahul@chatbox.com', 'password123')">
-          <span>🎧 <strong>Support Agent Rahul</strong> (Agent)</span>
-          <span style="font-size:11px; opacity:0.8">rahul@chatbox.com</span>
-        </button>
+      <div style="margin-top:20px; text-align:center; font-size:13px; color:var(--text-muted); border-top:1px solid var(--border-color); padding-top:16px;">
+        Don't have a workspace? <a href="javascript:void(0)" onclick="showAuthCard('register')" style="color:var(--primary); font-weight:700; text-decoration:none;">Create Free Workspace →</a>
+      </div>
+    </div>
+
+    <!-- Register Workspace Card -->
+    <div class="auth-card wide" id="register-card" style="display:none;">
+      <div class="auth-brand">
+        <div class="auth-logo" style="background:linear-gradient(135deg, #4f46e5, #3b82f6);">🚀</div>
+        <div>
+          <div class="auth-title">Create Workspace</div>
+          <div class="auth-subtitle">Set up ChatBox live chat for your company</div>
+        </div>
+      </div>
+
+      <div class="auth-error" id="register-error-msg"></div>
+      <div id="register-success-msg" style="display:none; background:#ecfdf5; border:1px solid #a7f3d0; color:#065f46; padding:10px 14px; border-radius:8px; font-size:13px; margin-bottom:14px;"></div>
+
+      <form id="register-form" onsubmit="event.preventDefault(); submitRegister();">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Company / Organization Name *</label>
+            <input type="text" class="form-input" id="reg-company-name" required placeholder="e.g. Acme Corp" />
+          </div>
+          <div class="form-group">
+            <label>Admin Full Name *</label>
+            <input type="text" class="form-input" id="reg-admin-name" required placeholder="e.g. Deepak Pandey" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Work Email Address *</label>
+          <input type="email" class="form-input" id="reg-email" required placeholder="admin@yourcompany.com" autocomplete="username" />
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Website Name</label>
+            <input type="text" class="form-input" id="reg-site-name" placeholder="e.g. Acme Website" />
+          </div>
+          <div class="form-group">
+            <label>Website URL</label>
+            <input type="url" class="form-input" id="reg-site-url" placeholder="https://yourwebsite.com" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Password (min 8 chars) *</label>
+            <div class="password-input-wrap">
+              <input type="password" class="form-input" id="reg-password" required placeholder="••••••••" autocomplete="new-password" />
+              <button type="button" class="btn-password-toggle" onclick="togglePassVisibility('reg-password', this)" title="Show/Hide Password">👁</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Confirm Password *</label>
+            <div class="password-input-wrap">
+              <input type="password" class="form-input" id="reg-password-confirm" required placeholder="••••••••" autocomplete="new-password" />
+              <button type="button" class="btn-password-toggle" onclick="togglePassVisibility('reg-password-confirm', this)" title="Show/Hide Password">👁</button>
+            </div>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-primary" id="reg-submit-btn" style="background:linear-gradient(135deg, #4f46e5, #3b82f6); margin-top:6px;">Create Free Workspace →</button>
+      </form>
+
+      <div style="margin-top:18px; text-align:center; font-size:13px; color:var(--text-muted); border-top:1px solid var(--border-color); padding-top:14px;">
+        Already have a workspace? <a href="javascript:void(0)" onclick="showAuthCard('login')" style="color:var(--primary); font-weight:700; text-decoration:none;">Sign In →</a>
       </div>
     </div>
 
@@ -961,13 +1061,16 @@
         </div>
         <div class="form-group">
           <label>New Password (min 6 characters)</label>
-          <input type="password" class="form-input" id="forgot-new-password" required placeholder="Enter new password" />
+          <div class="password-input-wrap">
+            <input type="password" class="form-input" id="forgot-new-password" required placeholder="Enter new password" />
+            <button type="button" class="btn-password-toggle" onclick="togglePassVisibility('forgot-new-password', this)" title="Show/Hide Password">👁</button>
+          </div>
         </div>
         <button type="submit" class="btn-primary" id="forgot-submit-btn" style="background:linear-gradient(135deg, #f97316, #ea580c);">Reset & Update Password</button>
       </form>
 
       <div style="margin-top:16px; text-align:center;">
-        <a href="javascript:void(0)" onclick="toggleForgotPass(false)" style="font-size:13px; color:var(--text-muted); text-decoration:none; font-weight:600;">← Back to Sign In</a>
+        <a href="javascript:void(0)" onclick="showAuthCard('login')" style="font-size:13px; color:var(--text-muted); text-decoration:none; font-weight:600;">← Back to Sign In</a>
       </div>
     </div>
   </div>
@@ -1610,25 +1713,61 @@
     let CURRENT_FILTER = 'unassigned';
     let CANNED_RESPONSES = [];
 
-    function quickLogin(email, pass) {
-      const emailInput = document.getElementById('login-email');
-      const passInput = document.getElementById('login-password');
-      if (emailInput) emailInput.value = email;
-      if (passInput) passInput.value = pass;
-      submitLogin();
+    // Password Visibility Toggle
+    function togglePassVisibility(inputId, btn) {
+      const input = document.getElementById(inputId);
+      if (!input) return;
+      if (input.type === 'password') {
+        input.type = 'text';
+        btn.textContent = '🙈';
+      } else {
+        input.type = 'password';
+        btn.textContent = '👁';
+      }
     }
-    window.quickLogin = quickLogin;
+    window.togglePassVisibility = togglePassVisibility;
 
+    // Switch between Login, Register, Forgot Password Cards
+    function showAuthCard(card) {
+      const loginCard = document.getElementById('login-card');
+      const regCard = document.getElementById('register-card');
+      const forgotCard = document.getElementById('forgot-card');
+
+      if (loginCard) loginCard.style.display = card === 'login' ? 'block' : 'none';
+      if (regCard) regCard.style.display = card === 'register' ? 'block' : 'none';
+      if (forgotCard) forgotCard.style.display = card === 'forgot' ? 'block' : 'none';
+
+      // Clear all error/success messages
+      ['auth-error-msg', 'register-error-msg', 'register-success-msg', 'forgot-error-msg', 'forgot-success-msg'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+      });
+
+      if (window.history && window.history.pushState) {
+        const targetPath = card === 'register' ? '/register' : '/login';
+        window.history.pushState(null, '', targetPath);
+      }
+    }
+    window.showAuthCard = showAuthCard;
+
+    // Backward compatibility for toggleForgotPass
+    function toggleForgotPass(show) {
+      showAuthCard(show ? 'forgot' : 'login');
+    }
+    window.toggleForgotPass = toggleForgotPass;
+
+    // Secure Login Submission
     async function submitLogin() {
       const emailEl = document.getElementById('login-email');
       const passEl = document.getElementById('login-password');
-      const email = emailEl ? emailEl.value.trim() : '';
+      const email = emailEl ? emailEl.value.trim().toLowerCase() : '';
       const pass = passEl ? passEl.value : '';
       const btn = document.getElementById('login-submit-btn');
       const errorEl = document.getElementById('auth-error-msg');
+
       if (!email || !pass) {
         if (errorEl) {
-          errorEl.textContent = 'Please enter both email and password.';
+          errorEl.textContent = 'Please enter both your work email and password.';
           errorEl.style.display = 'block';
         }
         return;
@@ -1636,7 +1775,7 @@
 
       errorEl.style.display = 'none';
       btn.disabled = true;
-      btn.textContent = 'Signing in...';
+      btn.textContent = 'Verifying credentials...';
 
       try {
         const res = await fetch(`${API_BASE}/auth/login`, {
@@ -1655,11 +1794,16 @@
           document.getElementById('auth-overlay').style.display = 'none';
           await initDashboard();
         } else {
-          errorEl.textContent = json.message || 'Login failed. Please check credentials.';
+          let errorMsg = json.message || 'Login failed. Please verify your email and password.';
+          if (json.errors) {
+            const firstErr = Object.values(json.errors)[0];
+            if (firstErr && firstErr[0]) errorMsg = firstErr[0];
+          }
+          errorEl.textContent = errorMsg;
           errorEl.style.display = 'block';
         }
       } catch (err) {
-        errorEl.textContent = 'Server connection error. Please make sure php artisan serve is running.';
+        errorEl.textContent = 'Server connection error. Please verify network connection.';
         errorEl.style.display = 'block';
       } finally {
         btn.disabled = false;
@@ -1667,6 +1811,94 @@
       }
     }
     window.submitLogin = submitLogin;
+
+    // Tenant / Company Registration Submission
+    async function submitRegister() {
+      const companyName = document.getElementById('reg-company-name').value.trim();
+      const adminName = document.getElementById('reg-admin-name').value.trim();
+      const email = document.getElementById('reg-email').value.trim().toLowerCase();
+      const siteName = document.getElementById('reg-site-name').value.trim() || companyName;
+      const siteUrl = document.getElementById('reg-site-url').value.trim();
+      const pass = document.getElementById('reg-password').value;
+      const passConfirm = document.getElementById('reg-password-confirm').value;
+
+      const btn = document.getElementById('reg-submit-btn');
+      const errEl = document.getElementById('register-error-msg');
+      const succEl = document.getElementById('register-success-msg');
+
+      errEl.style.display = 'none';
+      succEl.style.display = 'none';
+
+      if (!companyName || !adminName || !email || !pass) {
+        errEl.textContent = 'Please fill all required fields (*) to register.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      if (pass.length < 8) {
+        errEl.textContent = 'Password must be at least 8 characters long for security.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      if (pass !== passConfirm) {
+        errEl.textContent = 'Passwords do not match. Please verify and retype.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Creating Workspace...';
+
+      try {
+        const res = await fetch(`${API_BASE}/auth/register-tenant`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({
+            company_name: companyName,
+            name: adminName,
+            email: email,
+            site_name: siteName,
+            site_url: siteUrl || ('https://' + companyName.toLowerCase().replace(/[^a-z0-9]/g, '') + '.com'),
+            password: pass
+          })
+        });
+
+        const json = await res.json();
+        if (json.success && json.data && json.data.token) {
+          succEl.textContent = '🎉 Workspace registered successfully! Launching your dashboard...';
+          succEl.style.display = 'block';
+
+          AUTH_TOKEN = json.data.token;
+          localStorage.setItem('jix_token', AUTH_TOKEN);
+
+          setTimeout(async () => {
+            document.getElementById('auth-overlay').style.display = 'none';
+            await initDashboard();
+            showToast(`Welcome to ChatBox, ${adminName}! Your workspace "${companyName}" is active.`, 'success');
+          }, 1000);
+        } else {
+          let msg = json.message || 'Registration failed.';
+          if (json.errors) {
+            const firstErr = Object.values(json.errors)[0];
+            if (firstErr && firstErr[0]) msg = firstErr[0];
+          }
+          errEl.textContent = msg;
+          errEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = 'Create Free Workspace →';
+        }
+      } catch (err) {
+        errEl.textContent = 'Server connection error during registration. Please try again.';
+        errEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Create Free Workspace →';
+      }
+    }
+    window.submitRegister = submitRegister;
 
     function logout() {
       if (AUTH_TOKEN) {
@@ -1735,9 +1967,8 @@
         // 3. Header & Initial View
         if (isSuperAdmin) {
           document.getElementById('rail-company-name').textContent = 'ChatBox SaaS';
-          document.getElementById('rail-property-name').textContent = 'Platform Master Control';
-          switchMainView('platform');
-          loadPlatformData();
+          document.getElementById('rail-property-name').textContent = 'Live Inboxes';
+          switchMainView('inbox');
         } else {
           if (CURRENT_USER.tenant) {
             document.getElementById('rail-company-name').textContent = CURRENT_USER.tenant.name;
@@ -2943,9 +3174,13 @@
     }
     window.submitUpdateUser = submitUpdateUser;
 
-    // Auto-init on page load if token is cached
+    // Auto-init on page load if token is cached, otherwise check URL for /register
     if (AUTH_TOKEN) {
       initDashboard();
+    } else {
+      if (window.location.pathname.includes('/register') || window.location.hash === '#register') {
+        showAuthCard('register');
+      }
     }
   </script>
 

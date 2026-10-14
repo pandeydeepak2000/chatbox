@@ -18,6 +18,10 @@ Route::get('/login', function () {
     return view('dashboard');
 })->name('login');
 
+Route::get('/register', function () {
+    return view('dashboard');
+})->name('register');
+
 Route::get('/workspace', function () {
     return view('dashboard');
 });
