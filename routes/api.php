@@ -60,7 +60,8 @@ Route::prefix('v1')->group(function () {
         // Team / Agent Management
         Route::get('agents', [AuthController::class, 'listAgents']);
         Route::post('agents', [AuthController::class, 'createAgent'])->middleware('role:admin,super_admin');
-        Route::put('agents/{id}', [AuthController::class, 'updateAgent'])->middleware('role:admin,super_admin');
+        Route::match(['put', 'post'], 'agents/{id}', [AuthController::class, 'updateAgent'])->middleware('role:admin,super_admin');
+        Route::post('agents/{id}/update', [AuthController::class, 'updateAgent'])->middleware('role:admin,super_admin');
         Route::delete('agents/{id}', [AuthController::class, 'deleteAgent'])->middleware('role:admin,super_admin');
 
         // Super Admin SaaS Platform Management
@@ -68,7 +69,8 @@ Route::prefix('v1')->group(function () {
         Route::post('platform/tenants', [AuthController::class, 'platformCreateTenant'])->middleware('role:super_admin');
         Route::get('platform/stats', [AuthController::class, 'platformStats'])->middleware('role:super_admin');
         Route::get('platform/users', [AuthController::class, 'platformUsers'])->middleware('role:super_admin');
-        Route::put('platform/users/{id}', [AuthController::class, 'platformUpdateUser'])->middleware('role:super_admin');
+        Route::match(['put', 'post'], 'platform/users/{id}', [AuthController::class, 'platformUpdateUser'])->middleware('role:super_admin');
+        Route::post('platform/users/{id}/update', [AuthController::class, 'platformUpdateUser'])->middleware('role:super_admin');
         Route::delete('platform/users/{id}', [AuthController::class, 'platformDeleteUser'])->middleware('role:super_admin');
         Route::post('platform/flush-cache', [AuthController::class, 'platformFlushCache'])->middleware('role:super_admin');
         Route::put('auth/profile', [AuthController::class, 'updateProfile']);

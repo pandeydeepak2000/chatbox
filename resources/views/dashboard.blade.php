@@ -3493,8 +3493,8 @@
       }
 
       try {
-        const res = await fetch(`${API_BASE}/agents/${agentId}`, {
-          method: 'PUT',
+        const res = await fetch(`${API_BASE}/agents/${agentId}/update`, {
+          method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
