@@ -60,6 +60,7 @@ Route::prefix('v1')->group(function () {
         // Team / Agent Management
         Route::get('agents', [AuthController::class, 'listAgents']);
         Route::post('agents', [AuthController::class, 'createAgent'])->middleware('role:admin,super_admin');
+        Route::put('agents/{id}', [AuthController::class, 'updateAgent'])->middleware('role:admin,super_admin');
         Route::delete('agents/{id}', [AuthController::class, 'deleteAgent'])->middleware('role:admin,super_admin');
 
         // Super Admin SaaS Platform Management

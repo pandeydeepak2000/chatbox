@@ -1685,6 +1685,39 @@
       </div>
     </div>
 
+    <!-- Modal 2b: Edit Support Agent & Reset Password (Tenant Admin) -->
+    <div id="modal-edit-agent" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(8px); z-index:99999; align-items:center; justify-content:center;">
+      <div class="auth-card" style="width:460px; max-width:92vw;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
+          <div>
+            <h3 style="font-size:18px; font-weight:700; color:#0f172a; margin:0;">✏️ Edit Agent & Password</h3>
+            <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">Update login email or reset password for this agent</div>
+          </div>
+          <button onclick="closeEditAgentModal()" style="background:none; border:none; font-size:20px; cursor:pointer; color:#64748b;">✕</button>
+        </div>
+
+        <input type="hidden" id="edit-agent-id" />
+        <form onsubmit="event.preventDefault(); submitUpdateAgent();">
+          <div class="form-group">
+            <label>Agent Name</label>
+            <input type="text" class="form-input" id="edit-agent-name" required />
+          </div>
+          <div class="form-group">
+            <label>Email Address (Login)</label>
+            <input type="email" class="form-input" id="edit-agent-email" required />
+          </div>
+          <div class="form-group">
+            <label>New Password (Leave blank to keep current password)</label>
+            <input type="password" class="form-input" id="edit-agent-password" placeholder="Enter new password (min 6 characters)" />
+          </div>
+          <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
+            <button type="button" class="btn-action" onclick="closeEditAgentModal()">Cancel</button>
+            <button type="submit" class="btn-primary" style="width:auto; padding:10px 20px;">💾 Save Agent</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- Modal 3: Add / Edit Company FAQ -->
     <div id="modal-add-faq" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(8px); z-index:99999; align-items:center; justify-content:center;">
       <div class="auth-card" style="width:580px; max-width:92vw;">
@@ -3351,6 +3384,7 @@
         const list = document.getElementById('agents-list');
         list.innerHTML = json.data.map(a => {
           const isMe = CURRENT_USER && CURRENT_USER.id === a.id;
+          const editBtn = `<button onclick="openEditAgentModal('${a.id}', '${a.name.replace(/'/g, "\\'")}', '${a.email.replace(/'/g, "\\'")}')" class="btn-action" style="font-size:11px; padding:4px 10px; color:#2563eb; border-color:#bfdbfe;">✏️ Edit / Password</button>`;
           const removeBtn = !isMe ? `<button onclick="removeAgent('${a.id}', '${a.name.replace(/'/g, "\\'")}')" class="btn-action danger" style="font-size:11px; padding:4px 10px;">Remove</button>` : '';
           return `
             <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid var(--border-color); padding:12px 16px; border-radius:10px;">
@@ -3362,6 +3396,7 @@
                 <span class="conv-tag" style="background:${a.is_online ? '#ecfdf5' : '#f1f5f9'}; color:${a.is_online ? '#059669' : '#64748b'}; border:1px solid ${a.is_online ? '#a7f3d0' : '#e2e8f0'}">
                   ${a.is_online ? '● Online' : 'Offline'}
                 </span>
+                ${editBtn}
                 ${removeBtn}
               </div>
             </div>
@@ -3422,6 +3457,67 @@
         alert(json.message || 'Failed to add agent.');
       }
     }
+
+    function openEditAgentModal(agentId, name, email) {
+      document.getElementById('edit-agent-id').value = agentId;
+      document.getElementById('edit-agent-name').value = name;
+      document.getElementById('edit-agent-email').value = email;
+      document.getElementById('edit-agent-password').value = '';
+      document.getElementById('modal-edit-agent').style.display = 'flex';
+    }
+    window.openEditAgentModal = openEditAgentModal;
+
+    function closeEditAgentModal() {
+      document.getElementById('modal-edit-agent').style.display = 'none';
+    }
+    window.closeEditAgentModal = closeEditAgentModal;
+
+    async function submitUpdateAgent() {
+      const agentId = document.getElementById('edit-agent-id').value;
+      const name = document.getElementById('edit-agent-name').value.trim();
+      const email = document.getElementById('edit-agent-email').value.trim();
+      const pass = document.getElementById('edit-agent-password').value;
+
+      if (!name || !email) {
+        alert('Agent name and email are required.');
+        return;
+      }
+
+      const payload = { name, email };
+      if (pass) {
+        if (pass.length < 6) {
+          alert('Password must be at least 6 characters.');
+          return;
+        }
+        payload.password = pass;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/agents/${agentId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${AUTH_TOKEN}`
+          },
+          body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+        if (json.success) {
+          closeEditAgentModal();
+          alert('Agent details & password updated successfully!');
+          loadAgents();
+          if (CURRENT_USER && CURRENT_USER.id === agentId) {
+            document.getElementById('current-user-name').textContent = name;
+          }
+        } else {
+          alert(json.message || 'Failed to update agent.');
+        }
+      } catch (e) {
+        alert('Server connection error.');
+      }
+    }
+    window.submitUpdateAgent = submitUpdateAgent;
 
     let PLATFORM_TENANTS = [];
 

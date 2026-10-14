@@ -311,6 +311,54 @@ class AuthController extends Controller
     }
 
     /**
+     * Update an Agent within current Tenant (or any tenant if Super Admin).
+     */
+    public function updateAgent(Request $request, string $id): JsonResponse
+    {
+        $user = $request->user();
+
+        if (! $user->isAdmin() && ! $user->isSuperAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Forbidden: Only administrators can update agents.',
+            ], 403);
+        }
+
+        $query = User::where('id', $id);
+        if (! $user->isSuperAdmin()) {
+            $query->where('tenant_id', $user->tenant_id);
+        }
+
+        $agent = $query->firstOrFail();
+
+        $validated = $request->validate([
+            'name' => ['sometimes', 'string', 'max:255'],
+            'email' => ['sometimes', 'string', 'email', 'max:255', 'unique:users,email,' . $agent->id],
+            'password' => ['nullable', 'string', 'min:6'],
+            'department_ids' => ['nullable', 'array'],
+            'department_ids.*' => ['string', 'exists:departments,id'],
+        ]);
+
+        if (! empty($validated['password'])) {
+            $validated['password'] = Hash::make($validated['password']);
+        } else {
+            unset($validated['password']);
+        }
+
+        $agent->update($validated);
+
+        if (isset($validated['department_ids'])) {
+            $agent->departments()->sync($validated['department_ids']);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Agent credentials and details updated successfully.',
+            'data' => $agent->load('departments'),
+        ]);
+    }
+
+    /**
      * Delete an Agent from Tenant.
      */
     public function deleteAgent(Request $request, string $id): JsonResponse
