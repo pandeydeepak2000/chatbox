@@ -1849,37 +1849,6 @@
         </form>
       </div>
     </div>
-    <div id="modal-add-faq" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(8px); z-index:99999; align-items:center; justify-content:center;">
-      <div class="auth-card" style="width:520px; max-width:92vw;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
-          <h3 style="font-size:18px; font-weight:700; color:#0f172a;">➕ Add Company FAQ</h3>
-          <button onclick="closeAddFaqModal()" style="background:none; border:none; font-size:20px; cursor:pointer; color:#64748b;">✕</button>
-        </div>
-        <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">This FAQ will be visible to website visitors on the chat widget, and accessible to live chat agents for 1-click answers.</p>
-
-        <form onsubmit="event.preventDefault(); submitAddFaq();">
-          <div class="form-group">
-            <label>Question *</label>
-            <input type="text" class="form-input" id="new-faq-question" required placeholder="e.g. How do I track my order?" />
-          </div>
-          <div class="form-group">
-            <label>Answer *</label>
-            <textarea class="form-input" id="new-faq-answer" required rows="3" placeholder="Provide clear, concise answer..." style="resize:vertical;"></textarea>
-          </div>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-            <div class="form-group">
-              <label>Category</label>
-              <input type="text" class="form-input" id="new-faq-category" placeholder="e.g. Orders, Billing, Support" value="General" />
-            </div>
-            <div class="form-group">
-              <label>Display Order</label>
-              <input type="number" class="form-input" id="new-faq-order" value="1" min="1" />
-            </div>
-          </div>
-          <button type="submit" class="btn-primary" style="margin-top:10px;">Publish FAQ</button>
-        </form>
-      </div>
-    </div>
 
     <!-- Modal 5: User Profile & Credentials -->
     <div id="modal-profile" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(8px); z-index:99999; align-items:center; justify-content:center;">
@@ -2840,12 +2809,42 @@
       const depts = CURRENT_PROPERTY?.departments || [];
       const list = document.getElementById('departments-list');
       if (!list) return;
+      if (depts.length === 0) {
+        list.innerHTML = '<div style="font-size:12px; color:var(--text-dim); text-align:center; padding:10px;">No departments added yet.</div>';
+        return;
+      }
       list.innerHTML = depts.map(d => `
         <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid var(--border-color); padding:10px 14px; border-radius:10px;">
           <span style="font-weight:600; color:#0f172a;">🏷️ ${d.name}</span>
-          <span class="conv-tag" style="background:${d.is_active ? '#ecfdf5' : '#f1f5f9'}; color:${d.is_active ? '#059669' : '#64748b'};">${d.is_active ? 'Active' : 'Disabled'}</span>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="conv-tag" style="background:${d.is_active ? '#ecfdf5' : '#f1f5f9'}; color:${d.is_active ? '#059669' : '#64748b'};">${d.is_active ? 'Active' : 'Disabled'}</span>
+            <button onclick="deleteDepartment('${d.id}')" style="background:none; border:none; color:#ef4444; cursor:pointer; font-size:12px; font-weight:600; padding:2px 6px;" title="Delete department">✕</button>
+          </div>
         </div>
       `).join('');
+    }
+
+    async function deleteDepartment(deptId) {
+      if (!confirm('Are you sure you want to remove this department?')) return;
+      try {
+        const res = await fetch(`${API_BASE}/departments/${deptId}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${AUTH_TOKEN}`,
+            'Accept': 'application/json'
+          }
+        });
+        const json = await res.json();
+        if (json.success) {
+          CURRENT_PROPERTY.departments = (CURRENT_PROPERTY.departments || []).filter(d => d.id !== deptId);
+          renderDepartments();
+          showToast('Department removed.');
+        } else {
+          showToast(json.message || 'Failed to remove department', 'danger');
+        }
+      } catch (e) {
+        showToast('Error removing department', 'danger');
+      }
     }
 
     async function createDepartment() {
