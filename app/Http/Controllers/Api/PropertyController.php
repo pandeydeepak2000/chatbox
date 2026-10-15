@@ -274,6 +274,7 @@ class PropertyController extends Controller
         ]);
 
         Cache::forget("prop_faqs_{$property->id}");
+        Cache::forget("prop_faqs_all_{$property->id}");
 
         return response()->json([
             'success' => true,
@@ -304,6 +305,7 @@ class PropertyController extends Controller
 
         $faq->update($validated);
         Cache::forget("prop_faqs_{$faq->property_id}");
+        Cache::forget("prop_faqs_all_{$faq->property_id}");
 
         return response()->json([
             'success' => true,
@@ -326,6 +328,7 @@ class PropertyController extends Controller
         $propertyId = $faq->property_id;
         $faq->delete();
         Cache::forget("prop_faqs_{$propertyId}");
+        Cache::forget("prop_faqs_all_{$propertyId}");
 
         return response()->json([
             'success' => true,

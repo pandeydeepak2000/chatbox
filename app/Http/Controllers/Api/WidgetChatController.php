@@ -318,13 +318,13 @@ class WidgetChatController extends Controller
         // Intelligent FAQ / Knowledge Base Matcher & Human Agent Dispatch
         $botReplyContent = null;
         if ($this->wantsHumanAgent($sanitizedContent)) {
-            $botReplyContent = "🤝 Connecting you with our live support team... An agent will be with you shortly!";
+            $botReplyContent = "🤝 Connecting you with our live support team... An agent will join this chat shortly!";
         } else {
             $matchedFaq = $this->findFaqMatch($property, $sanitizedContent);
             if ($matchedFaq) {
                 $botReplyContent = $matchedFaq->answer . "\n\n💡 _Need to speak with a human support agent? Reply 'Talk to agent' anytime._";
             } else {
-                $botReplyContent = "👋 Thanks for contacting us! We've received your inquiry and our support team has been notified.";
+                $botReplyContent = "Hello! Thank you for reaching out to SaluteHost Support. 💬\n\nOur live support team has been alerted and an agent will join this chat shortly. Please feel free to provide your domain name, registered email, or invoice ID while you wait!";
             }
         }
 
@@ -561,7 +561,7 @@ class WidgetChatController extends Controller
     protected function wantsHumanAgent(string $query): bool
     {
         $lowered = mb_strtolower($query);
-        $humanKeywords = ['agent', 'human', 'live chat', 'support executive', 'customer care', 'representative', 'real person', 'baat karni hai', 'insan', 'executive', 'call me', 'help me live'];
+        $humanKeywords = ['agent', 'human', 'live chat', 'support executive', 'customer care', 'representative', 'real person', 'baat karni hai', 'insan', 'executive', 'call me', 'help me live', 'talk to agent', 'human agent'];
         foreach ($humanKeywords as $kw) {
             if (mb_strpos($lowered, $kw) !== false) {
                 return true;
@@ -571,7 +571,7 @@ class WidgetChatController extends Controller
     }
 
     /**
-     * Find best matching Knowledge Base FAQ for the property based on keywords.
+     * Find best matching Knowledge Base FAQ for the property based on strict keyword semantics.
      */
     protected function findFaqMatch(Property $property, string $query): ?Faq
     {
@@ -586,12 +586,35 @@ class WidgetChatController extends Controller
         $cleanQuery = mb_strtolower(trim($query));
         $cleanQueryWords = preg_split('/[\s,\.\?!;:\(\)\-\_\/\+]+/u', $cleanQuery, -1, PREG_SPLIT_NO_EMPTY);
 
+        // Comprehensive Stop Words (English + Hindi/Hinglish + generic filler tokens)
         $stopWords = [
-            'kya', 'hai', 'kaise', 'karein', 'mera', 'meri', 'mere', 'aur', 'ko', 'se', 'ke', 'ki',
-            'the', 'is', 'how', 'to', 'what', 'can', 'i', 'do', 'you', 'my', 'in', 'on', 'a', 'an', 'please', 'help', 'want'
+            'salute', 'host', 'salutehost', 'kya', 'hai', 'hain', 'kaise', 'karein', 'karo', 'karna',
+            'mera', 'meri', 'mere', 'aur', 'ko', 'se', 'ke', 'ki', 'ka', 'mein', 'par', 'pe', 'bataao',
+            'batao', 'bataye', 'bataiye', 'chahiye', 'gaye', 'gaya', 'mujhe', 'humko', 'aap', 'apna',
+            'the', 'is', 'are', 'was', 'were', 'how', 'to', 'what', 'can', 'i', 'do', 'you', 'my', 'in',
+            'on', 'a', 'an', 'please', 'help', 'want', 'need', 'give', 'show', 'tell', 'about', 'for', 'with',
+            'this', 'that', 'there', 'here', 'some', 'any', 'from', 'where', 'when', 'why', 'who'
         ];
 
-        $keywords = array_values(array_filter($cleanQueryWords, fn($w) => mb_strlen($w) >= 3 && !in_array($w, $stopWords)));
+        // Synonym mapping for high-intent hosting terms
+        $normalizedWords = [];
+        foreach ($cleanQueryWords as $w) {
+            if (in_array($w, ['pass', 'pwd', 'passwrd'])) {
+                $normalizedWords[] = 'password';
+            } elseif (in_array($w, ['bill', 'receipt', 'invoices', 'reciept'])) {
+                $normalizedWords[] = 'invoice';
+            } elseif (in_array($w, ['ns', 'nameserver'])) {
+                $normalizedWords[] = 'nameservers';
+            } elseif (in_array($w, ['wp'])) {
+                $normalizedWords[] = 'wordpress';
+            } elseif (in_array($w, ['pay', 'payment', 'upi'])) {
+                $normalizedWords[] = 'payment';
+            } else {
+                $normalizedWords[] = $w;
+            }
+        }
+
+        $keywords = array_values(array_filter($normalizedWords, fn($w) => mb_strlen($w) >= 3 && !in_array($w, $stopWords)));
         if (empty($keywords)) {
             return null;
         }
@@ -601,23 +624,27 @@ class WidgetChatController extends Controller
 
         foreach ($faqs as $faq) {
             $qText = mb_strtolower($faq->question);
-            $aText = mb_strtolower($faq->answer);
             $catText = mb_strtolower($faq->category);
+            $aText = mb_strtolower($faq->answer);
 
+            $questionMatches = 0;
             $score = 0;
+
             foreach ($keywords as $kw) {
+                // Strict match: Keyword must be present in the question
                 if (mb_strpos($qText, $kw) !== false) {
+                    $score += 6;
+                    $questionMatches++;
+                } elseif (mb_strpos($catText, $kw) !== false) {
                     $score += 3;
-                }
-                if (mb_strpos($catText, $kw) !== false) {
-                    $score += 2;
-                }
-                if (mb_strpos($aText, $kw) !== false) {
+                } elseif (mb_strpos($aText, $kw) !== false) {
+                    // Only count answer matches if at least one keyword also hit the question
                     $score += 1;
                 }
             }
 
-            if ($score > $highestScore && $score >= 2) {
+            // Strict threshold: Must have matched at least one keyword in the Question title, and minimum score >= 6
+            if ($questionMatches >= 1 && $score >= 6 && $score > $highestScore) {
                 $highestScore = $score;
                 $bestMatch = $faq;
             }
