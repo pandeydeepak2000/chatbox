@@ -181,6 +181,23 @@ class PropertyController extends Controller
     }
 
     /**
+     * List departments under property.
+     */
+    public function listDepartments(Request $request, string $propertyId): JsonResponse
+    {
+        $property = $this->findTenantProperty($request, $propertyId);
+        $departments = $property->departments()
+            ->withCount(['agents', 'conversations'])
+            ->orderBy('name', 'asc')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $departments,
+        ]);
+    }
+
+    /**
      * Create department under property.
      */
     public function storeDepartment(Request $request, string $propertyId): JsonResponse
@@ -210,6 +227,42 @@ class PropertyController extends Controller
             'message' => 'Department created successfully.',
             'data' => $dept,
         ], 201);
+    }
+
+    /**
+     * Update department details (Name, description, active status).
+     */
+    public function updateDepartment(Request $request, string $id): JsonResponse
+    {
+        $user = $request->user();
+
+        if (! $user->isAdmin() && ! $user->isSuperAdmin()) {
+            return response()->json(['success' => false, 'message' => 'Forbidden.'], 403);
+        }
+
+        $query = Department::where('id', $id);
+        if (! $user->isSuperAdmin()) {
+            $query->whereHas('property', fn($q) => $q->where('tenant_id', $user->tenant_id));
+        }
+        $dept = $query->firstOrFail();
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:100'],
+            'description' => ['nullable', 'string', 'max:255'],
+            'is_active' => ['nullable', 'boolean'],
+        ]);
+
+        $dept->update([
+            'name' => $validated['name'],
+            'description' => $validated['description'] ?? $dept->description,
+            'is_active' => isset($validated['is_active']) ? (bool) $validated['is_active'] : $dept->is_active,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Department updated successfully.',
+            'data' => $dept,
+        ]);
     }
 
     /**

@@ -121,15 +121,31 @@ class AgentChatController extends Controller
         ]);
 
         // Auto-assign to responding agent if unassigned
+        $justJoined = false;
         if (empty($conversation->assigned_agent_id)) {
             $conversation->assigned_agent_id = $user->id;
             if ($conversation->status === 'unassigned') {
                 $conversation->status = 'open';
             }
+            $justJoined = true;
         }
 
         $conversation->last_message_at = now();
         $conversation->save();
+
+        if ($justJoined) {
+            $joinMsg = Message::create([
+                'conversation_id' => $conversation->id,
+                'sender_type' => 'system',
+                'sender_id' => $user->id,
+                'message_type' => 'text',
+                'content' => "🟢 {$user->name} has joined the chat.",
+                'is_read' => true,
+            ]);
+            try {
+                broadcast(new MessageSent($joinMsg))->toOthers();
+            } catch (\Throwable $e) {}
+        }
 
         // Anti-XSS Sanitization
         $cleanContent = htmlspecialchars(trim(strip_tags($validated['content'])), ENT_QUOTES, 'UTF-8');
@@ -172,11 +188,28 @@ class AgentChatController extends Controller
         ]);
 
         $targetAgentId = $validated['agent_id'] ?? $user->id;
+        $prevAgentId = $conversation->assigned_agent_id;
 
         $conversation->update([
             'assigned_agent_id' => $targetAgentId,
             'status' => $conversation->status === 'unassigned' ? 'open' : $conversation->status,
         ]);
+
+        if ($prevAgentId !== $targetAgentId) {
+            $targetAgent = User::find($targetAgentId);
+            $agentName = $targetAgent ? $targetAgent->name : 'A live support agent';
+            $joinMsg = Message::create([
+                'conversation_id' => $conversation->id,
+                'sender_type' => 'system',
+                'sender_id' => $targetAgentId,
+                'message_type' => 'text',
+                'content' => "🟢 {$agentName} has joined the chat.",
+                'is_read' => true,
+            ]);
+            try {
+                broadcast(new MessageSent($joinMsg))->toOthers();
+            } catch (\Throwable $e) {}
+        }
 
         return response()->json([
             'success' => true,
@@ -245,6 +278,22 @@ class AgentChatController extends Controller
         }
 
         $conversation->update($updates);
+
+        if (!empty($validated['agent_id'])) {
+            $targetAgent = User::find($validated['agent_id']);
+            $agentName = $targetAgent ? $targetAgent->name : 'another agent';
+            $transferMsg = Message::create([
+                'conversation_id' => $conversation->id,
+                'sender_type' => 'system',
+                'sender_id' => $validated['agent_id'],
+                'message_type' => 'text',
+                'content' => "🔄 Chat transferred to {$agentName}.",
+                'is_read' => true,
+            ]);
+            try {
+                broadcast(new MessageSent($transferMsg))->toOthers();
+            } catch (\Throwable $e) {}
+        }
 
         return response()->json([
             'success' => true,

@@ -1317,11 +1317,18 @@
 
         <div>
           <div class="intel-card" style="margin-bottom:20px;">
-            <h4>Departments</h4>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+              <h4 style="margin:0;">🏢 Company Departments</h4>
+              <span style="font-size:11.5px; color:var(--text-muted);">Route live chats to specialized teams</span>
+            </div>
             <div id="departments-list" style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;"></div>
-            <div style="display:flex; gap:8px;">
-              <input type="text" class="form-input" id="new-dept-name" placeholder="New Department (e.g. Enterprise Sales)" />
-              <button class="btn-action success" onclick="createDepartment()">Add</button>
+            <div style="background:#f8fafc; border:1px dashed var(--border-color); border-radius:10px; padding:12px;">
+              <div style="font-size:12px; font-weight:700; color:#0f172a; margin-bottom:8px;">+ Add New Department</div>
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <input type="text" class="form-input" id="new-dept-name" placeholder="Department Name (e.g. Technical Support, Billing)" />
+                <input type="text" class="form-input" id="new-dept-desc" placeholder="Brief Description (e.g. Server, cPanel & DNS issues)" />
+                <button class="btn-action success" onclick="createDepartment()" style="align-self:flex-start; padding:6px 16px;">+ Add Department</button>
+              </div>
             </div>
           </div>
 
@@ -1872,6 +1879,35 @@
             <input type="password" class="form-input" id="profile-password" placeholder="Enter new password (min 6 chars, optional)" />
           </div>
           <button type="submit" class="btn-primary" style="margin-top:10px;">Update My Profile</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal: Edit Department -->
+    <div id="modal-edit-department" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(8px); z-index:99999; align-items:center; justify-content:center;">
+      <div class="auth-card" style="width:460px; max-width:92vw;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
+          <h3 style="font-size:18px; font-weight:700; color:#0f172a;">🏢 Edit Company Department</h3>
+          <button onclick="closeEditDepartmentModal()" style="background:none; border:none; font-size:20px; cursor:pointer; color:#64748b;">✕</button>
+        </div>
+
+        <form onsubmit="event.preventDefault(); submitUpdateDepartment();">
+          <div class="form-group">
+            <label>Department Name *</label>
+            <input type="text" class="form-input" id="edit-dept-name" required placeholder="e.g. Technical Support, Billing, Sales" />
+          </div>
+          <div class="form-group">
+            <label>Description (Optional)</label>
+            <input type="text" class="form-input" id="edit-dept-desc" placeholder="e.g. Hosting, DNS and server questions" />
+          </div>
+          <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-top:12px;">
+            <input type="checkbox" id="edit-dept-active" style="width:18px; height:18px; cursor:pointer;" />
+            <label for="edit-dept-active" style="margin:0; font-weight:600; cursor:pointer;">Department is Active (Visible in chat widget)</label>
+          </div>
+          <div style="display:flex; gap:10px; margin-top:20px;">
+            <button type="submit" class="btn-primary" style="flex:1;">Save Changes</button>
+            <button type="button" class="btn-action" style="flex:1;" onclick="closeEditDepartmentModal()">Cancel</button>
+          </div>
         </form>
       </div>
     </div>
@@ -2814,15 +2850,92 @@
         return;
       }
       list.innerHTML = depts.map(d => `
-        <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid var(--border-color); padding:10px 14px; border-radius:10px;">
-          <span style="font-weight:600; color:#0f172a;">🏷️ ${d.name}</span>
-          <div style="display:flex; align-items:center; gap:8px;">
-            <span class="conv-tag" style="background:${d.is_active ? '#ecfdf5' : '#f1f5f9'}; color:${d.is_active ? '#059669' : '#64748b'};">${d.is_active ? 'Active' : 'Disabled'}</span>
-            <button onclick="deleteDepartment('${d.id}')" style="background:none; border:none; color:#ef4444; cursor:pointer; font-size:12px; font-weight:600; padding:2px 6px;" title="Delete department">✕</button>
+        <div style="display:flex; justify-content:space-between; align-items:center; background:#ffffff; border:1px solid var(--border-color); padding:10px 14px; border-radius:10px; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+          <div>
+            <div style="font-weight:700; color:#0f172a; font-size:13px; display:flex; align-items:center; gap:6px;">
+              <span>🏢 ${d.name}</span>
+              <span class="conv-tag" style="background:${d.is_active ? '#ecfdf5' : '#f1f5f9'}; color:${d.is_active ? '#059669' : '#64748b'}; font-size:10px;">${d.is_active ? 'Active' : 'Disabled'}</span>
+            </div>
+            ${d.description ? `<div style="font-size:11.5px; color:#64748b; margin-top:2px;">${d.description}</div>` : ''}
+          </div>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <button onclick="openEditDepartmentModal('${d.id}')" class="btn-action" style="padding:4px 8px; font-size:11px;" title="Edit department">✏️ Edit</button>
+            <button onclick="deleteDepartment('${d.id}')" style="background:#fee2e2; border:1px solid #fca5a5; color:#ef4444; cursor:pointer; font-size:11px; font-weight:600; padding:4px 8px; border-radius:6px;" title="Delete department">🗑️</button>
           </div>
         </div>
       `).join('');
     }
+
+    let EDITING_DEPT_ID = null;
+    let EDITING_PROPERTY_ID = null;
+
+    function openEditDepartmentModal(deptId, propertyId = null) {
+      const prop = CURRENT_PROPERTY;
+      const dept = prop?.departments?.find(d => d.id === deptId);
+      if (!dept) return;
+
+      EDITING_DEPT_ID = deptId;
+      EDITING_PROPERTY_ID = prop?.id;
+
+      document.getElementById('edit-dept-name').value = dept.name || '';
+      document.getElementById('edit-dept-desc').value = dept.description || '';
+      document.getElementById('edit-dept-active').checked = dept.is_active !== false;
+
+      document.getElementById('modal-edit-department').style.display = 'flex';
+    }
+    window.openEditDepartmentModal = openEditDepartmentModal;
+
+    function closeEditDepartmentModal() {
+      EDITING_DEPT_ID = null;
+      EDITING_PROPERTY_ID = null;
+      document.getElementById('modal-edit-department').style.display = 'none';
+    }
+    window.closeEditDepartmentModal = closeEditDepartmentModal;
+
+    async function submitUpdateDepartment() {
+      if (!EDITING_DEPT_ID) return;
+      const name = document.getElementById('edit-dept-name').value.trim();
+      const desc = document.getElementById('edit-dept-desc').value.trim();
+      const isActive = document.getElementById('edit-dept-active').checked;
+
+      if (!name) {
+        alert('Department name is required.');
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/departments/${EDITING_DEPT_ID}/update`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${AUTH_TOKEN}`
+          },
+          body: JSON.stringify({
+            name: name,
+            description: desc,
+            is_active: isActive
+          })
+        });
+        const json = await res.json();
+        if (json.success) {
+          if (CURRENT_PROPERTY?.departments) {
+            const idx = CURRENT_PROPERTY.departments.findIndex(d => d.id === EDITING_DEPT_ID);
+            if (idx !== -1) {
+              CURRENT_PROPERTY.departments[idx] = json.data;
+            }
+          }
+          renderDepartments();
+          closeEditDepartmentModal();
+          showToast('Department updated successfully!');
+        } else {
+          showToast(json.message || 'Failed to update department', 'danger');
+        }
+      } catch (e) {
+        showToast('Error updating department', 'danger');
+      }
+    }
+    window.submitUpdateDepartment = submitUpdateDepartment;
 
     async function deleteDepartment(deptId) {
       if (!confirm('Are you sure you want to remove this department?')) return;
@@ -2848,8 +2961,10 @@
     }
 
     async function createDepartment() {
-      const input = document.getElementById('new-dept-name');
-      const name = input.value.trim();
+      const nameInput = document.getElementById('new-dept-name');
+      const descInput = document.getElementById('new-dept-desc');
+      const name = nameInput.value.trim();
+      const desc = descInput ? descInput.value.trim() : null;
       if (!name || !CURRENT_PROPERTY) return;
 
       const res = await fetch(`${API_BASE}/properties/${CURRENT_PROPERTY.id}/departments`, {
@@ -2859,14 +2974,15 @@
           'Accept': 'application/json',
           'Authorization': `Bearer ${AUTH_TOKEN}`
         },
-        body: JSON.stringify({ name })
+        body: JSON.stringify({ name, description: desc })
       });
       const json = await res.json();
       if (json.success) {
         if (!CURRENT_PROPERTY.departments) CURRENT_PROPERTY.departments = [];
         CURRENT_PROPERTY.departments.push(json.data);
         renderDepartments();
-        input.value = '';
+        nameInput.value = '';
+        if (descInput) descInput.value = '';
         showToast('Department added successfully!');
       } else {
         showToast(json.message || 'Failed to add department', 'danger');

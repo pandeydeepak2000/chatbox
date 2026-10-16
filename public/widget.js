@@ -512,7 +512,10 @@
           </div>
           <div class="jix-header-titles">
             <h3 id="jix-header-title">Live Support</h3>
-            <p id="jix-header-status">Online • Typically replies instantly</p>
+            <p id="jix-header-status" style="display:flex; align-items:center; gap:6px; font-size:11.5px;">
+              <span id="jix-status-text">Online • Replies instantly</span>
+              <span id="jix-header-timer" style="display:none; font-family:monospace; font-weight:700; background:rgba(255,255,255,0.22); padding:1px 6px; border-radius:10px; font-size:10.5px; letter-spacing:0.5px;">⏱️ 00:00</span>
+            </p>
           </div>
         </div>
         <div class="jix-header-actions">
@@ -679,6 +682,44 @@
     }, 50);
   }
 
+  let sessionTimerInterval = null;
+  function startSessionTimer(startTimeStr) {
+    if (sessionTimerInterval) clearInterval(sessionTimerInterval);
+    const timerEl = shadow.getElementById('jix-header-timer');
+    if (!timerEl) return;
+    timerEl.style.display = 'inline-block';
+
+    const startTimestamp = startTimeStr ? new Date(startTimeStr).getTime() : Date.now();
+    function tick() {
+      const elapsedSec = Math.max(0, Math.floor((Date.now() - startTimestamp) / 1000));
+      const mins = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+      const secs = String(elapsedSec % 60).padStart(2, '0');
+      timerEl.textContent = `⏱️ ${mins}:${secs}`;
+    }
+    tick();
+    sessionTimerInterval = setInterval(tick, 1000);
+  }
+
+  function updateHeaderAgentInfo(agent, startedAt) {
+    const avatarText = shadow.getElementById('jix-avatar-text');
+    const headerTitle = shadow.getElementById('jix-header-title');
+    const statusText = shadow.getElementById('jix-status-text');
+
+    if (agent && agent.name) {
+      if (avatarText) avatarText.textContent = (agent.avatar || agent.name.substring(0, 2)).toUpperCase();
+      if (headerTitle) headerTitle.textContent = `${agent.name}`;
+      if (statusText) statusText.textContent = `🟢 Online (Support)`;
+    } else {
+      if (avatarText) avatarText.textContent = state.property?.site_name ? state.property.site_name.substring(0, 2).toUpperCase() : 'SH';
+      if (headerTitle) headerTitle.textContent = state.property?.site_name ? `${state.property.site_name} Support` : 'Live Support';
+      if (statusText) statusText.textContent = state.conversation ? '⏳ Connecting to live agent...' : 'Online • Replies instantly';
+    }
+
+    if (state.conversation) {
+      startSessionTimer(startedAt || state.conversation.created_at);
+    }
+  }
+
   // Render Messages or Prechat Form
   function render() {
     chatBody.innerHTML = '';
@@ -738,6 +779,8 @@
 
     // Has Active Conversation
     if (transcriptHeaderBtn) transcriptHeaderBtn.style.display = 'inline-flex';
+
+    updateHeaderAgentInfo(state.conversation.assigned_agent, state.conversation.created_at);
 
     const isClosed = state.conversation.status === 'closed';
     chatFooter.style.display = isClosed ? 'none' : 'flex';
@@ -835,6 +878,24 @@
   }
 
   function appendMessageToDOM(msg, playSound = false) {
+    if (msg.sender_type === 'system') {
+      const sysEl = document.createElement('div');
+      sysEl.className = 'jix-sys-msg';
+      sysEl.style.cssText = 'align-self: center; margin: 10px auto; text-align: center; max-width: 90%; animation: jixFadeIn 0.25s ease;';
+      const cleanTxt = (msg.content || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      sysEl.innerHTML = `
+        <span style="display:inline-flex; align-items:center; gap:6px; background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; font-size:11.5px; font-weight:600; padding:4px 14px; border-radius:20px; box-shadow:0 1px 2px rgba(0,0,0,0.04);">
+          ${cleanTxt}
+        </span>
+      `;
+      chatBody.appendChild(sysEl);
+      scrollToBottom();
+      return;
+    }
+
     const isVisitor = msg.sender_type === 'visitor';
     const isBot = msg.sender_type === 'bot';
     const msgEl = document.createElement('div');
@@ -1130,19 +1191,28 @@
 
           const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
           const json = await res.json();
-          if (json.success && json.data && json.data.messages) {
-            const newMsgs = json.data.messages;
-            newMsgs.forEach(m => {
-              if (!state.messages.some(existing => existing.id === m.id)) {
-                state.messages.push(m);
-                appendMessageToDOM(m, true);
-              }
-            });
+          if (json.success && json.data) {
+            if (json.data.assigned_agent) {
+              state.conversation.assigned_agent = json.data.assigned_agent;
+              updateHeaderAgentInfo(json.data.assigned_agent, json.data.started_at);
+            }
+            if (json.data.status) {
+              state.conversation.status = json.data.status;
+            }
+            if (json.data.messages) {
+              const newMsgs = json.data.messages;
+              newMsgs.forEach(m => {
+                if (!state.messages.some(existing => existing.id === m.id)) {
+                  state.messages.push(m);
+                  appendMessageToDOM(m, true);
+                }
+              });
+            }
           }
         } catch (e) {
           // Silent catch to prevent console noise
         }
-      }, 8000); // 8s interval prevents hitting CloudLinux Entry Process limits
+      }, 4000); // 4s responsive interval for active live chat
     }
   }
 

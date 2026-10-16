@@ -80,7 +80,10 @@ Route::prefix('v1')->group(function () {
         Route::delete('properties/{id}', [PropertyController::class, 'destroy'])->middleware('role:admin,super_admin');
         Route::post('properties/{id}/regenerate-keys', [PropertyController::class, 'regenerateKeys'])->middleware('role:admin,super_admin');
         Route::post('properties/{id}/test-webhook', [AgentChatController::class, 'testWebhook'])->middleware('role:admin,super_admin');
+        Route::get('properties/{id}/departments', [PropertyController::class, 'listDepartments']);
         Route::post('properties/{id}/departments', [PropertyController::class, 'storeDepartment'])->middleware('role:admin,super_admin');
+        Route::put('departments/{id}', [PropertyController::class, 'updateDepartment'])->middleware('role:admin,super_admin');
+        Route::post('departments/{id}/update', [PropertyController::class, 'updateDepartment'])->middleware('role:admin,super_admin');
         Route::delete('departments/{id}', [PropertyController::class, 'destroyDepartment'])->middleware('role:admin,super_admin');
         Route::post('properties/{id}/canned-responses', [AgentChatController::class, 'storeCannedResponse'])->middleware('role:admin,super_admin');
         Route::delete('canned-responses/{id}', [AgentChatController::class, 'destroyCannedResponse'])->middleware('role:admin,super_admin');

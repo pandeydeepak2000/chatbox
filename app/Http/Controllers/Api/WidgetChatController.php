@@ -183,11 +183,26 @@ class WidgetChatController extends Controller
             Visitor::where('id', $conversation->visitor_id)->update(['last_seen_at' => now()]);
         }
 
+        $assignedAgent = null;
+        if ($conversation->assigned_agent_id) {
+            $agent = User::find($conversation->assigned_agent_id);
+            if ($agent) {
+                $assignedAgent = [
+                    'id' => $agent->id,
+                    'name' => $agent->name,
+                    'role' => $agent->role,
+                    'avatar' => strtoupper(substr($agent->name, 0, 2)),
+                ];
+            }
+        }
+
         return response()->json([
             'success' => true,
             'data' => [
                 'messages' => $newMessages,
                 'status' => $conversation->status,
+                'assigned_agent' => $assignedAgent,
+                'started_at' => $conversation->created_at?->toIso8601String(),
             ],
         ]);
     }
@@ -596,25 +611,57 @@ class WidgetChatController extends Controller
             'this', 'that', 'there', 'here', 'some', 'any', 'from', 'where', 'when', 'why', 'who'
         ];
 
-        // Synonym mapping for high-intent hosting terms
+        // Synonym & typo normalization for high-intent hosting terms
         $normalizedWords = [];
+        $hasBuyIntent = false;
+        $hasDomainIntent = false;
+        $hasNameserverIntent = false;
+        $hasTransferIntent = false;
+        $hasPasswordIntent = false;
+        $hasInvoiceIntent = false;
+        $hasWordpressIntent = false;
+        $hasSslIntent = false;
+        $hasEmailIntent = false;
+
         foreach ($cleanQueryWords as $w) {
-            if (in_array($w, ['pass', 'pwd', 'passwrd'])) {
+            if (in_array($w, ['pass', 'pwd', 'passwrd', 'password', 'passwords', 'reset', 'forgot'])) {
                 $normalizedWords[] = 'password';
-            } elseif (in_array($w, ['bill', 'receipt', 'invoices', 'reciept'])) {
+                $hasPasswordIntent = true;
+            } elseif (in_array($w, ['bill', 'receipt', 'invoices', 'reciept', 'invoice', 'billing'])) {
                 $normalizedWords[] = 'invoice';
-            } elseif (in_array($w, ['ns', 'nameserver'])) {
+                $hasInvoiceIntent = true;
+            } elseif (in_array($w, ['ns', 'nameserver', 'nameservers', 'ns1', 'ns2', 'point', 'pointing', 'dns'])) {
                 $normalizedWords[] = 'nameservers';
-            } elseif (in_array($w, ['wp'])) {
+                $hasNameserverIntent = true;
+            } elseif (in_array($w, ['wp', 'wordpress'])) {
                 $normalizedWords[] = 'wordpress';
-            } elseif (in_array($w, ['pay', 'payment', 'upi'])) {
+                $hasWordpressIntent = true;
+            } elseif (in_array($w, ['pay', 'payment', 'upi', 'checkout', 'qr', 'wallet'])) {
                 $normalizedWords[] = 'payment';
+            } elseif (in_array($w, ['buy', 'purchase', 'puchase', 'purhcase', 'purchese', 'kharidna', 'kharid', 'register', 'registration', 'reg', 'book', 'booking', 'order', 'ordr'])) {
+                $normalizedWords[] = 'buy';
+                $normalizedWords[] = 'register';
+                $hasBuyIntent = true;
+            } elseif (in_array($w, ['domain', 'doain', 'domin', 'domian', 'domains', 'doains'])) {
+                $normalizedWords[] = 'domain';
+                $hasDomainIntent = true;
+            } elseif (in_array($w, ['transfer', 'tranfer', 'migrate', 'migration', 'transferring'])) {
+                $normalizedWords[] = 'transfer';
+                $hasTransferIntent = true;
+            } elseif (in_array($w, ['ssl', 'https', 'certificate', 'cert'])) {
+                $normalizedWords[] = 'ssl';
+                $hasSslIntent = true;
+            } elseif (in_array($w, ['email', 'webmail', 'mail', 'mailbox', 'roundcube'])) {
+                $normalizedWords[] = 'email';
+                $hasEmailIntent = true;
+            } elseif (in_array($w, ['cpanel', 'cpannel', 'c-panel'])) {
+                $normalizedWords[] = 'cpanel';
             } else {
                 $normalizedWords[] = $w;
             }
         }
 
-        $keywords = array_values(array_filter($normalizedWords, fn($w) => mb_strlen($w) >= 3 && !in_array($w, $stopWords)));
+        $keywords = array_values(array_unique(array_filter($normalizedWords, fn($w) => mb_strlen($w) >= 3 && !in_array($w, $stopWords))));
         if (empty($keywords)) {
             return null;
         }
@@ -627,24 +674,49 @@ class WidgetChatController extends Controller
             $catText = mb_strtolower($faq->category);
             $aText = mb_strtolower($faq->answer);
 
+            // Nameserver FAQ guard: Only match nameserver FAQ if user explicitly requested nameservers/point/dns
+            $isNameserverFaq = (mb_strpos($qText, 'nameserver') !== false || mb_strpos($qText, 'point my domain') !== false);
+            if ($isNameserverFaq && !$hasNameserverIntent) {
+                continue;
+            }
+
             $questionMatches = 0;
             $score = 0;
+
+            // Intent-specific strong boosts
+            if ($hasDomainIntent && $hasBuyIntent) {
+                if (mb_strpos($qText, 'buy') !== false || mb_strpos($qText, 'register') !== false) {
+                    $score += 35;
+                    $questionMatches++;
+                }
+            }
+
+            if ($hasDomainIntent && $hasTransferIntent) {
+                if (mb_strpos($qText, 'transfer') !== false) {
+                    $score += 35;
+                    $questionMatches++;
+                }
+            }
+
+            if ($hasNameserverIntent && $isNameserverFaq) {
+                $score += 35;
+                $questionMatches++;
+            }
 
             foreach ($keywords as $kw) {
                 // Strict match: Keyword must be present in the question
                 if (mb_strpos($qText, $kw) !== false) {
-                    $score += 6;
+                    $score += 8;
                     $questionMatches++;
                 } elseif (mb_strpos($catText, $kw) !== false) {
-                    $score += 3;
+                    $score += 4;
                 } elseif (mb_strpos($aText, $kw) !== false) {
-                    // Only count answer matches if at least one keyword also hit the question
-                    $score += 1;
+                    $score += 2;
                 }
             }
 
-            // Strict threshold: Must have matched at least one keyword in the Question title, and minimum score >= 6
-            if ($questionMatches >= 1 && $score >= 6 && $score > $highestScore) {
+            // Minimum score threshold
+            if ($questionMatches >= 1 && $score >= 8 && $score > $highestScore) {
                 $highestScore = $score;
                 $bestMatch = $faq;
             }
