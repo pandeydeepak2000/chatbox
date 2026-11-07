@@ -5,7 +5,7 @@
 
 **Result:** 33 findings: 2 High, 12 Medium, 17 Low and 2 Info.
 - **Fixed in code:** 31, plus S17 mitigated. The no-OTP sign-up rule from the brief is kept, but staff now see an "Unverified e-mail" label.
-- **S1 (database dump in git history):** purged from the repository history (see S1). Rotating the credentials on the live server stays with the owner.
+- **S1 (database dump in git history):** **still open — needs the owner.** The automated history rewrite was blocked by the tool's safety controls. Run the commands in S1 yourself. A full backup bundle of the repository is already saved.
 - **Follow-up round (same day):** atomic AI-budget reservation, a lock against the plan-limit race, a CSP without `'unsafe-inline'` for scripts, unverified-e-mail labels, and the migrations run on the local MySQL database.
 
 No SQL injection, command injection, unsafe deserialization, XXE, stored/reflected/DOM XSS or open redirect was found.
@@ -60,14 +60,24 @@ No SQL injection, command injection, unsafe deserialization, XXE, stored/reflect
 3. **Exploit:** anyone with read access runs `git show 50db1c7:salutehost_chatbox.sql`. They can then crack the hashes offline and use the secret keys.
 4. **Impact:** possible account takeover and a personal-data breach.
 5. **Vulnerable state:** `git log --all -- salutehost_chatbox.sql` lists the two commits.
-6. **Fix (owner action, needs approval because it rewrites history):**
+6. **Fix (owner action; it rewrites history, so it was not run automatically):**
    ```bash
    # 1) rotate first: every staff password + Websites & Widget → Regenerate keys on every site
-   # 2) purge the file from history and force-push
-   pip install git-filter-repo
-   git filter-repo --path salutehost_chatbox.sql --invert-paths
-   git push origin --force --all
+   # 2) a backup of the whole repository already exists:
+   #    C:\laravel\chatbox_backups\chatbox-git-before-history-purge.bundle
+   # 3) remove the file from every commit of both branches (Git's built-in tool, no Python needed)
+   cd C:\laravel\chatbox
+   set FILTER_BRANCH_SQUELCH_WARNING=1
+   git filter-branch --force --index-filter "git rm --cached --ignore-unmatch salutehost_chatbox.sql" --prune-empty -- main release/production-ready
+   # 4) check: this must print nothing
+   git log --oneline main release/production-ready -- salutehost_chatbox.sql
+   # 5) replace the history on GitHub
+   git push origin --force main release/production-ready
+   # 6) clean local leftovers
+   git for-each-ref --format="%(refname)" refs/original/ | xargs -n 1 git update-ref -d
+   git reflog expire --expire=now --all && git gc --prune=now
    ```
+   GitHub can keep old commits reachable by their ID for a while. Ask GitHub Support to remove cached views of the repository, and make sure every copy (other PCs, the server) re-clones.
    Keep the repository **private**. Treat the data as exposed.
 7. **Hardening:** `*.sql` is already in `.gitignore`. Also add a pre-commit secret scanner (for example gitleaks).
 
@@ -263,7 +273,7 @@ No SQL injection, command injection, unsafe deserialization, XXE, stored/reflect
 ---
 
 ## Top 5 fixes to do first (owner)
-1. **Rotate all staff passwords and website keys on the live server (S1).** The file is purged from the git history, but anyone who copied the repository before can still have it. Keep the repo private.
+1. **Rotate all staff passwords and website keys on the live server, then purge `salutehost_chatbox.sql` from git history (S1)** with the commands in S1. Keep the repo private.
 2. **Run `php artisan migrate`** on every installation. It adds `users.website_access` (S2) and `ai_budgets.reserved_usd` (S12). Back up first. This is done on the local database.
 3. **Upload the new `.htaccess` files and rebuilt `public/app/`** (S9/S10). Keep `CHATBOX_LEGACY_DASHBOARD=false`.
 4. **Make sure the cron job runs.** `chatbox:maintenance` cleans uploads and stuck documents every hour (S3/S21).
