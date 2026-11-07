@@ -110,6 +110,6 @@ npm run dev
 
 ## ⚡ 5. सुपर एडमिन द्वारा कंपनी ऑनबोर्डिंग और क्रेडेंशियल्स अपडेट
 
-- **Super Admin Login**: `ambitionmanagements@gmail.com` / `password123`
+- **Super Admin Login**: `php artisan chatbox:clean-accounts` से बना अकाउंट (रैंडम पासवर्ड एक बार स्क्रीन पर दिखता है)
 - **"+ Assign ChatBox to Company"**: नई कंपनी का नाम, एडमिन ईमेल, पासवर्ड और वेबसाइट डालें — सिस्टम तुरंत उनकी कंपनी का वर्कस्पेस, एडमिन अकाउंट, और यूनिक पब्लिक की (`pk_live_...`) जेनरेट कर देता है।
 - **"Platform Users & Access Control"**: किसी भी यूज़र का नाम, ईमेल, रोल (`super_admin`, `admin`, `agent`), या नया पासवर्ड एक क्लिक में अपडेट करें।

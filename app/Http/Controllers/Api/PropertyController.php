@@ -5,6 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Department;
 use App\Models\Property;
+use App\Models\User;
+use App\Services\Audit;
+use App\Support\OutboundUrlGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -24,7 +27,7 @@ class PropertyController extends Controller
             $query->where('tenant_id', $user->tenant_id);
         }
 
-        $properties = $query->latest()->get();
+        $properties = $query->latest()->get()->map(fn (Property $p) => $p->toArrayFor($user))->values();
 
         return response()->json([
             'success' => true,
@@ -54,6 +57,12 @@ class PropertyController extends Controller
             'widget_config' => ['nullable', 'array'],
         ]);
 
+        if (! $user->tenant_id) {
+            return response()->json(['success' => false, 'message' => 'Create websites from the platform panel for a specific company.'], 422);
+        }
+
+        \App\Services\PlanLimits::assertCanAdd($user->tenant_id, 'websites');
+
         $domains = $validated['allowed_domains'] ?? [];
         $host = parse_url($validated['site_url'], PHP_URL_HOST);
         if ($host && ! in_array($host, $domains)) {
@@ -65,9 +74,17 @@ class PropertyController extends Controller
             'site_name' => $validated['site_name'],
             'site_url' => $validated['site_url'],
             'allowed_domains' => array_values(array_unique($domains)),
-            'widget_config' => $validated['widget_config'] ?? null,
+            'widget_config' => null,
             'is_active' => true,
         ]);
+        if (! empty($validated['widget_config'])) {
+            if ($error = $this->applyWidgetConfig($property, $validated['widget_config'])) {
+                $property->delete();
+                return $error;
+            }
+            $property->save();
+        }
+        Audit::record('property.created', $property, ['site_url' => $property->site_url]);
 
         // Create default Support department
         Department::create([
@@ -79,7 +96,7 @@ class PropertyController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Property created successfully.',
-            'data' => $this->formatPropertyResponse($property->load('departments')),
+            'data' => $this->formatPropertyResponse($property->load('departments'), $user),
         ], 201);
     }
 
@@ -92,7 +109,7 @@ class PropertyController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatPropertyResponse($property->load(['departments', 'cannedResponses'])),
+            'data' => $this->formatPropertyResponse($property->load(['departments', 'cannedResponses']), $request->user()),
         ]);
     }
 
@@ -103,14 +120,8 @@ class PropertyController extends Controller
     {
         $user = $request->user();
 
-        if (! $user->isAdmin() && ! $user->isSuperAdmin()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Forbidden: Only administrators can modify property settings.',
-            ], 403);
-        }
-
         $property = $this->findTenantProperty($request, $id);
+        abort_unless($user->canManageProperty($property), 403, 'Forbidden: You cannot modify the settings of this website.');
 
         $validated = $request->validate([
             'site_name' => ['sometimes', 'string', 'max:255'],
@@ -121,13 +132,21 @@ class PropertyController extends Controller
             'is_active' => ['sometimes', 'boolean'],
         ]);
 
-        $property->update($validated);
+        $widgetConfig = $validated['widget_config'] ?? null;
+        unset($validated['widget_config']);
+        $property->fill($validated);
+        if ($widgetConfig !== null && ($error = $this->applyWidgetConfig($property, $widgetConfig))) {
+            return $error;
+        }
+        $changed = array_keys($property->getDirty());
+        $property->save();
         $this->clearPropertyCache($property);
+        Audit::record('property.updated', $property, ['fields' => $changed]);
 
         return response()->json([
             'success' => true,
             'message' => 'Property updated successfully.',
-            'data' => $this->formatPropertyResponse($property),
+            'data' => $this->formatPropertyResponse($property, $user),
         ]);
     }
 
@@ -149,11 +168,12 @@ class PropertyController extends Controller
         $this->clearPropertyCache($property);
         $property->regenerateKeys();
         $this->clearPropertyCache($property);
+        Audit::record('property.keys_regenerated', $property);
 
         return response()->json([
             'success' => true,
             'message' => 'API keys regenerated successfully.',
-            'data' => $this->formatPropertyResponse($property),
+            'data' => $this->formatPropertyResponse($property, $user),
         ]);
     }
 
@@ -172,6 +192,8 @@ class PropertyController extends Controller
         }
 
         $property = $this->findTenantProperty($request, $id);
+        Audit::record('property.deleted', $property, ['site_name' => $property->site_name, 'site_url' => $property->site_url]);
+        $this->clearPropertyCache($property);
         $property->delete();
 
         return response()->json([
@@ -204,11 +226,8 @@ class PropertyController extends Controller
     {
         $user = $request->user();
 
-        if (! $user->isAdmin() && ! $user->isSuperAdmin()) {
-            return response()->json(['success' => false, 'message' => 'Forbidden.'], 403);
-        }
-
         $property = $this->findTenantProperty($request, $propertyId);
+        abort_unless($user->canManageProperty($property), 403, 'Forbidden.');
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:100'],
@@ -236,15 +255,12 @@ class PropertyController extends Controller
     {
         $user = $request->user();
 
-        if (! $user->isAdmin() && ! $user->isSuperAdmin()) {
-            return response()->json(['success' => false, 'message' => 'Forbidden.'], 403);
-        }
-
         $query = Department::where('id', $id);
         if (! $user->isSuperAdmin()) {
             $query->whereHas('property', fn($q) => $q->where('tenant_id', $user->tenant_id));
         }
         $dept = $query->firstOrFail();
+        abort_unless($user->canManageProperty($dept->property), 403, 'Forbidden.');
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:100'],
@@ -272,15 +288,12 @@ class PropertyController extends Controller
     {
         $user = $request->user();
 
-        if (! $user->isAdmin() && ! $user->isSuperAdmin()) {
-            return response()->json(['success' => false, 'message' => 'Forbidden.'], 403);
-        }
-
         $dept = Department::where('id', $id);
         if (! $user->isSuperAdmin()) {
             $dept->whereHas('property', fn($q) => $q->where('tenant_id', $user->tenant_id));
         }
         $dept = $dept->firstOrFail();
+        abort_unless($user->canManageProperty($dept->property), 403, 'Forbidden.');
         $dept->delete();
 
         return response()->json([
@@ -309,6 +322,7 @@ class PropertyController extends Controller
     public function storeFaq(Request $request, string $id): JsonResponse
     {
         $property = $this->findTenantProperty($request, $id);
+        abort_unless($request->user()->canManageProperty($property), 403, 'Forbidden.');
 
         $validated = $request->validate([
             'category' => ['nullable', 'string', 'max:100'],
@@ -347,6 +361,7 @@ class PropertyController extends Controller
             $query->whereHas('property', fn($q) => $q->where('tenant_id', $user->tenant_id));
         }
         $faq = $query->firstOrFail();
+        abort_unless($user->canManageProperty($faq->property), 403, 'Forbidden.');
 
         $validated = $request->validate([
             'category' => ['sometimes', 'string', 'max:100'],
@@ -378,6 +393,7 @@ class PropertyController extends Controller
             $query->whereHas('property', fn($q) => $q->where('tenant_id', $user->tenant_id));
         }
         $faq = $query->firstOrFail();
+        abort_unless($user->canManageProperty($faq->property), 403, 'Forbidden.');
         $propertyId = $faq->property_id;
         $faq->delete();
         Cache::forget("prop_faqs_{$propertyId}");
@@ -392,6 +408,50 @@ class PropertyController extends Controller
     /**
      * Clear property cache when updated.
      */
+    /**
+     * Merge an incoming widget_config into the property.
+     * - the webhook secret goes to its own encrypted column (never back into widget_config);
+     *   a blank secret keeps the existing one
+     * - the webhook URL must pass the SSRF guard (audit H4)
+     * - client-side helper keys are dropped
+     */
+    private function applyWidgetConfig(Property $property, array $incoming): ?JsonResponse
+    {
+        $current = $property->widget_config ?? [];
+        $legacySecret = $current['webhook_secret'] ?? null;
+
+        $newSecret = array_key_exists('webhook_secret', $incoming) ? trim((string) $incoming['webhook_secret']) : '';
+        unset($incoming['webhook_secret'], $incoming['webhook_secret_set'], $current['webhook_secret']);
+
+        $merged = array_merge($current, $incoming);
+
+        $url = trim((string) ($merged['webhook_url'] ?? ''));
+        if ($url === '') {
+            $merged['webhook_url'] = null;
+        } else {
+            $check = OutboundUrlGuard::check($url);
+            if (! $check['ok']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Webhook URL rejected: ' . $check['reason'],
+                    'errors' => ['widget_config.webhook_url' => [$check['reason']]],
+                ], 422);
+            }
+            $merged['webhook_url'] = $url;
+        }
+
+        if ($newSecret !== '') {
+            $property->webhook_secret = mb_substr($newSecret, 0, 200);
+        } elseif ($legacySecret && ! $property->webhook_secret) {
+            // Move a legacy secret out of widget_config into the encrypted column.
+            $property->webhook_secret = $legacySecret;
+        }
+
+        $property->widget_config = $merged;
+
+        return null;
+    }
+
     private function clearPropertyCache(Property $property): void
     {
         Cache::forget("prop_pub_{$property->public_key}");
@@ -410,16 +470,19 @@ class PropertyController extends Controller
         if (! $user->isSuperAdmin()) {
             $query->where('tenant_id', $user->tenant_id);
         }
+        $property = $query->firstOrFail();
+        // Website-restricted staff cannot even see other websites of their company.
+        abort_unless($user->canAccessProperty($property), 404);
 
-        return $query->firstOrFail();
+        return $property;
     }
 
     /**
      * Format property with embed snippet.
      */
-    private function formatPropertyResponse(Property $property): array
+    private function formatPropertyResponse(Property $property, ?User $viewer): array
     {
-        $data = $property->toArray();
+        $data = $property->toArrayFor($viewer);
         $apiUrl = config('app.url', 'http://localhost:8000');
         
         $data['embed_code'] = "<!-- JixChat Live Support Widget -->\n"

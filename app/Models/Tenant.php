@@ -17,6 +17,9 @@ class Tenant extends Model
         'plan',
         'status',
         'settings',
+        'owner_user_id',
+        'timezone',
+        'ticket_prefix',
     ];
 
     protected function casts(): array
@@ -44,6 +47,17 @@ class Tenant extends Model
     public function agents(): HasMany
     {
         return $this->hasMany(User::class)->where('role', 'agent');
+    }
+
+    public function owner(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(User::class, 'owner_user_id');
+    }
+
+    /** Company setting helper, e.g. setting('sales_followup_user_id'). */
+    public function setting(string $key, mixed $default = null): mixed
+    {
+        return ($this->settings ?? [])[$key] ?? $default;
     }
 
     public function isActive(): bool

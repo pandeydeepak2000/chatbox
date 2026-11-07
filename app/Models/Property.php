@@ -16,26 +16,93 @@ class Property extends Model
     protected $fillable = [
         'tenant_id',
         'site_name',
+        'slug',
+        'identity_mode',
         'site_url',
         'public_key',
         'secret_key',
         'allowed_domains',
         'widget_config',
+        'webhook_secret',
         'is_active',
     ];
+
+    /** Never serialised by default (audit H5 / C3). Admin-only views add what they need explicitly. */
+    protected $hidden = ['secret_key', 'webhook_secret'];
+
+    /** widget_config keys that must never leave the server in a public (widget) response. */
+    private const PRIVATE_CONFIG_KEYS = ['webhook_url', 'webhook_secret', 'webhook_events'];
 
     protected function casts(): array
     {
         return [
             'allowed_domains' => 'array',
             'widget_config' => 'array',
+            'webhook_secret' => 'encrypted',
             'is_active' => 'boolean',
         ];
+    }
+
+    /**
+     * Strip the legacy webhook secret from widget_config in every serialisation.
+     * Staff see only whether a secret is configured.
+     */
+    public function toArray()
+    {
+        $data = parent::toArray();
+        if (isset($data['widget_config']) && is_array($data['widget_config'])) {
+            unset($data['widget_config']['webhook_secret'], $data['widget_config']['webhook_url'], $data['widget_config']['webhook_events']);
+            $data['widget_config']['webhook_secret_set'] = $this->effectiveWebhookSecret() !== null;
+        }
+
+        return $data;
+    }
+
+    /** Serialisation for a staff member: admins also get secret_key and webhook settings. */
+    public function toArrayFor(?User $viewer): array
+    {
+        $data = $this->toArray();
+        if ($viewer && ($viewer->isAdmin() || $viewer->isSuperAdmin())) {
+            $data['secret_key'] = $this->secret_key;
+            $config = $this->widget_config ?? [];
+            if (isset($data['widget_config'])) {
+                $data['widget_config']['webhook_url'] = $config['webhook_url'] ?? null;
+                if (isset($config['webhook_events'])) {
+                    $data['widget_config']['webhook_events'] = $config['webhook_events'];
+                }
+            }
+        }
+
+        return $data;
+    }
+
+    /** widget_config as safe for anonymous website visitors. */
+    public function publicWidgetConfig(): array
+    {
+        $config = $this->widget_config ?? [];
+        foreach (array_keys($config) as $key) {
+            if (in_array($key, self::PRIVATE_CONFIG_KEYS, true) || preg_match('/secret|token|password|api_?key/i', (string) $key)) {
+                unset($config[$key]);
+            }
+        }
+
+        return $config;
+    }
+
+    /** Secret from the dedicated encrypted column, falling back to the legacy widget_config value. */
+    public function effectiveWebhookSecret(): ?string
+    {
+        $secret = $this->webhook_secret ?: (($this->widget_config ?? [])['webhook_secret'] ?? null);
+
+        return $secret !== '' ? $secret : null;
     }
 
     protected static function booted(): void
     {
         static::creating(function (Property $property) {
+            if (empty($property->slug)) {
+                $property->slug = self::uniqueSlug($property->site_name ?: 'website');
+            }
             if (empty($property->public_key)) {
                 $property->public_key = 'pk_live_' . Str::random(32);
             }
@@ -53,6 +120,45 @@ class Property extends Model
                 ];
             }
         });
+    }
+
+    /** Paths that can never be a website admin slug (they are application routes). */
+    public const RESERVED_SLUGS = ['admin', 'api', 'app', 'widget', 'login', 'register', 'platform', 'dashboard', 'workspace', 'demo', 'up', 'storage', 'uploads', 'public', 'assets', 'static', '_next', 'widget-js', 'favicon-ico', 'robots-txt'];
+
+    public static function slugProblem(string $slug, ?string $ignoreId = null): ?string
+    {
+        if (! preg_match('/^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/', $slug)) {
+            return 'Use 3–40 lowercase letters, numbers or hyphens (not at the start or end).';
+        }
+        if (in_array($slug, self::RESERVED_SLUGS, true)) {
+            return 'This address is reserved. Please choose another.';
+        }
+        if (self::where('slug', $slug)->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))->exists()) {
+            return 'This address is already used by another website.';
+        }
+
+        return null;
+    }
+
+    public static function uniqueSlug(string $name): string
+    {
+        $base = substr(Str::slug($name) ?: 'website', 0, 34);
+        if (strlen($base) < 3 || in_array($base, self::RESERVED_SLUGS, true)) {
+            $base = 'site-' . $base;
+        }
+        $slug = $base;
+        $i = 2;
+        while (self::where('slug', $slug)->exists()) {
+            $slug = $base . '-' . $i++;
+        }
+
+        return $slug;
+    }
+
+    /** Website-specific admin login URL, e.g. https://chat.example.com/website-a/admin */
+    public function adminUrl(): string
+    {
+        return url('/' . $this->slug . '/admin');
     }
 
     public function tenant(): BelongsTo
@@ -112,8 +218,12 @@ class Property extends Model
         }
 
         foreach ($allowed as $domain) {
-            $domainTrimmed = trim($domain);
-            if ($domainTrimmed === '*' || $domainTrimmed === '') {
+            $domainTrimmed = trim((string) $domain);
+            if ($domainTrimmed === '') {
+                continue;
+            }
+            if ($domainTrimmed === '*') {
+                // Explicit opt-in by an admin: any website may embed this widget.
                 return true;
             }
             $normalized = strtolower(trim(parse_url($domainTrimmed, PHP_URL_HOST) ?: $domainTrimmed));

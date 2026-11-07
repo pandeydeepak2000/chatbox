@@ -1047,7 +1047,7 @@
         <div class="auth-logo" style="background:linear-gradient(135deg, #f97316, #ea580c);">🔑</div>
         <div>
           <div class="auth-title">Reset Password</div>
-          <div class="auth-subtitle">Set a new password for your account</div>
+          <div class="auth-subtitle" id="forgot-subtitle">We will e-mail you a secure reset link</div>
         </div>
       </div>
 
@@ -1059,14 +1059,15 @@
           <label>Registered Email Address</label>
           <input type="email" class="form-input" id="forgot-email" required placeholder="your-email@example.com" />
         </div>
-        <div class="form-group">
-          <label>New Password (min 6 characters)</label>
+        <input type="hidden" id="forgot-token" value="" />
+        <div class="form-group" id="forgot-password-group" style="display:none;">
+          <label>New Password (min 8 characters)</label>
           <div class="password-input-wrap">
-            <input type="password" class="form-input" id="forgot-new-password" required placeholder="Enter new password" />
+            <input type="password" class="form-input" id="forgot-new-password" minlength="8" autocomplete="new-password" placeholder="Enter new password" />
             <button type="button" class="btn-password-toggle" onclick="togglePassVisibility('forgot-new-password', this)" title="Show/Hide Password">👁</button>
           </div>
         </div>
-        <button type="submit" class="btn-primary" id="forgot-submit-btn" style="background:linear-gradient(135deg, #f97316, #ea580c);">Reset & Update Password</button>
+        <button type="submit" class="btn-primary" id="forgot-submit-btn" style="background:linear-gradient(135deg, #f97316, #ea580c);">Send Reset Link</button>
       </form>
 
       <div style="margin-top:16px; text-align:center;">
@@ -1129,7 +1130,7 @@
           <div class="rail-btn-left">📊 Analytics & KPIs</div>
         </a>
         <a class="rail-btn" id="tab-leads" onclick="switchMainView('leads')">
-          <div class="rail-btn-left">🎯 CRM &amp; Leads</div>
+          <div class="rail-btn-left">🎯 Leads</div>
           <span class="rail-badge" id="leads-count-badge" style="background:#10b981; color:#fff; display:none;">0</span>
         </a>
 
@@ -1352,7 +1353,7 @@
             </div>
             <div class="form-group">
               <label>HMAC Secret Key (Optional, for payload verification)</label>
-              <input type="text" class="form-input" id="cust-webhook-secret" placeholder="e.g. whsec_live_abcdef123456" />
+              <input type="password" class="form-input" id="cust-webhook-secret" autocomplete="new-password" placeholder="e.g. whsec_live_abcdef123456" />
             </div>
             <div style="display:flex; gap:10px;">
               <button class="btn-primary" style="flex:1" onclick="saveWidgetConfig()">Save Webhook</button>
@@ -1390,42 +1391,115 @@
       </div>
     </div>
 
-    <!-- Full View Panel: CRM & Leads -->
+    <!-- Full View Panel: Leads Management (company + website scoped on the server) -->
     <div class="full-view-panel" id="leads-panel" style="display:none">
-      <div class="full-view-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+      <div class="full-view-header" style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px;">
         <div>
-          <h2>🎯 Visitor Leads &amp; CRM Pipeline</h2>
-          <p>Captured prospects, contact details, initial inquiries, and conversion stages.</p>
+          <h2>🎯 Leads</h2>
+          <p>Prospects captured automatically from ChatBox conversations on your websites.</p>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-          <button class="feed-tab active" id="lead-filter-all" onclick="filterLeads('')">All Leads</button>
-          <button class="feed-tab" id="lead-filter-new" onclick="filterLeads('new')">New</button>
-          <button class="feed-tab" id="lead-filter-contacted" onclick="filterLeads('contacted')">Contacted</button>
-          <button class="feed-tab" id="lead-filter-qualified" onclick="filterLeads('qualified')">Qualified</button>
-          <button class="feed-tab" id="lead-filter-converted" onclick="filterLeads('converted')">Converted</button>
-          <button class="btn-action success" onclick="exportLeadsCsv()" style="font-weight:700; padding:6px 14px; font-size:12px; background:#10b981; color:#fff;" title="Download complete leads list in CSV/Excel">⬇️ Export Leads (CSV)</button>
+          <select class="form-input" id="lead-export-scope" style="width:auto; padding:6px 10px; font-size:12px;" title="Which leads to download">
+            <option value="filtered">Export: current filters</option>
+            <option value="all">Export: all leads</option>
+          </select>
+          <button class="btn-action success" onclick="exportLeads('xlsx')" style="font-weight:700; padding:7px 14px; font-size:12px; background:#10b981; color:#fff;">⬇️ Download Excel (.xlsx)</button>
+          <button class="btn-action" onclick="exportLeads('csv')" style="font-weight:700; padding:7px 14px; font-size:12px;">⬇️ Download CSV (.csv)</button>
         </div>
       </div>
 
+      <div class="leads-filter-bar" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:8px; background:#ffffff; border:1px solid var(--border-color); border-radius:12px; padding:12px; margin-bottom:12px;">
+        <input type="search" class="form-input" id="lead-f-search" placeholder="Search name, email or phone" oninput="debouncedLeadSearch()" style="grid-column:span 2; min-width:0;" />
+        <select class="form-input" id="lead-f-website" onchange="applyLeadFilters()"><option value="">All websites</option></select>
+        <select class="form-input" id="lead-f-status" onchange="applyLeadFilters()"><option value="">All statuses</option></select>
+        <select class="form-input" id="lead-f-service" onchange="applyLeadFilters()"><option value="">All services</option></select>
+        <select class="form-input" id="lead-f-assigned" onchange="applyLeadFilters()">
+          <option value="">Any staff</option>
+          <option value="me">Assigned to me</option>
+          <option value="unassigned">Unassigned</option>
+        </select>
+        <label style="display:flex; flex-direction:column; font-size:11px; color:var(--text-muted);">From
+          <input type="date" class="form-input" id="lead-f-from" onchange="applyLeadFilters()" />
+        </label>
+        <label style="display:flex; flex-direction:column; font-size:11px; color:var(--text-muted);">To
+          <input type="date" class="form-input" id="lead-f-to" onchange="applyLeadFilters()" />
+        </label>
+        <button class="btn-action" onclick="resetLeadFilters()" style="align-self:end;">Reset filters</button>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-size:12px; color:var(--text-muted);">
+        <span id="leads-summary">Loading leads…</span>
+        <span style="display:flex; gap:6px; align-items:center;">
+          <button class="btn-action" id="leads-prev" onclick="changeLeadPage(-1)" style="padding:4px 10px; font-size:12px;">‹ Prev</button>
+          <span id="leads-page-label">1 / 1</span>
+          <button class="btn-action" id="leads-next" onclick="changeLeadPage(1)" style="padding:4px 10px; font-size:12px;">Next ›</button>
+        </span>
+      </div>
+
       <div style="background:#ffffff; border:1px solid var(--border-color); border-radius:14px; overflow:hidden; box-shadow:var(--shadow-sm); overflow-x:auto;">
-        <table style="width:100%; border-collapse:collapse; text-align:left; font-size:13px; min-width:700px;">
+        <table style="width:100%; border-collapse:collapse; text-align:left; font-size:13px; min-width:1100px;">
           <thead>
             <tr style="background:#f8fafc; border-bottom:1px solid var(--border-color); color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">
-              <th style="padding:14px 16px;">Lead Contact</th>
-              <th style="padding:14px 16px;">Initial Inquiry</th>
-              <th style="padding:14px 16px;">Source &amp; Location</th>
-              <th style="padding:14px 16px;">Lead Stage</th>
-              <th style="padding:14px 16px;">Date</th>
-              <th style="padding:14px 16px; text-align:right;">Actions</th>
+              <th style="padding:12px 14px;">Lead ID</th>
+              <th style="padding:12px 14px;">Customer</th>
+              <th style="padding:12px 14px;">Source Website</th>
+              <th style="padding:12px 14px;">Service</th>
+              <th style="padding:12px 14px;">Inquiry Summary</th>
+              <th style="padding:12px 14px;">Status</th>
+              <th style="padding:12px 14px;">Assigned Staff</th>
+              <th style="padding:12px 14px;">Created</th>
+              <th style="padding:12px 14px;">Last Interaction</th>
+              <th style="padding:12px 14px; text-align:right;"></th>
             </tr>
           </thead>
           <tbody id="leads-table-tbody">
-            <tr><td colspan="6" style="padding:30px; text-align:center; color:var(--text-dim)">Loading CRM leads...</td></tr>
+            <tr><td colspan="10" style="padding:30px; text-align:center; color:var(--text-dim)">Loading leads…</td></tr>
           </tbody>
         </table>
       </div>
     </div>
 
+    <!-- Lead detail modal -->
+    <div id="modal-lead" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(8px); z-index:99999; align-items:center; justify-content:center;">
+      <div class="auth-card" style="width:760px; max-width:94vw; max-height:90vh; overflow-y:auto;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+          <h3 style="font-size:18px; font-weight:700; color:#0f172a;" id="lead-modal-title">Lead</h3>
+          <button onclick="closeLeadModal()" style="background:none; border:none; font-size:20px; cursor:pointer; color:#64748b;" aria-label="Close">✕</button>
+        </div>
+        <div id="lead-modal-meta" style="font-size:12px; color:var(--text-muted); margin-bottom:12px;"></div>
+        <form onsubmit="event.preventDefault(); saveLeadDetails();" style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group" style="margin:0;"><label>Customer name</label><input class="form-input" id="lead-e-name" maxlength="255" /></div>
+          <div class="form-group" style="margin:0;"><label>Email address</label><input class="form-input" id="lead-e-email" type="email" maxlength="255" /></div>
+          <div class="form-group" style="margin:0;"><label>Phone number</label><input class="form-input" id="lead-e-phone" maxlength="50" /></div>
+          <div class="form-group" style="margin:0;"><label>Customer website</label><input class="form-input" id="lead-e-website" maxlength="255" /></div>
+          <div class="form-group" style="margin:0;"><label>Interested service</label><select class="form-input" id="lead-e-service"></select></div>
+          <div class="form-group" style="margin:0;"><label>Status</label><select class="form-input" id="lead-e-status"></select></div>
+          <div class="form-group" style="margin:0; grid-column:span 2;"><label>Assigned staff</label><select class="form-input" id="lead-e-assigned"></select></div>
+          <div class="form-group" style="margin:0; grid-column:span 2;"><label>Inquiry summary</label><textarea class="form-input" id="lead-e-inquiry" rows="3" maxlength="2000"></textarea></div>
+          <div style="grid-column:span 2; display:flex; gap:8px; justify-content:space-between;">
+            <button type="button" class="btn-action danger" id="lead-delete-btn" onclick="deleteLeadFromModal()" style="display:none;">Delete lead</button>
+            <button type="submit" class="btn-primary" style="width:auto; padding:8px 18px; margin-left:auto;" id="lead-save-btn">Save changes</button>
+          </div>
+        </form>
+
+        <div style="margin-top:18px; display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+          <div>
+            <h4 style="font-size:13px; font-weight:700; margin-bottom:8px;">💬 Linked conversations</h4>
+            <div id="lead-conversations" style="display:flex; flex-direction:column; gap:6px; font-size:12px;"></div>
+            <h4 style="font-size:13px; font-weight:700; margin:14px 0 8px;">🎫 Linked tickets</h4>
+            <div id="lead-tickets" style="font-size:12px; color:var(--text-muted);">The ticket module is not available yet. Tickets will appear here once it is released.</div>
+          </div>
+          <div>
+            <h4 style="font-size:13px; font-weight:700; margin-bottom:8px;">🔒 Internal notes <span style="font-weight:400; color:var(--text-muted);">(staff only)</span></h4>
+            <form onsubmit="event.preventDefault(); addLeadNote();" style="display:flex; gap:6px; margin-bottom:8px;">
+              <textarea class="form-input" id="lead-note-input" rows="2" maxlength="5000" placeholder="Add a note…" style="flex:1;"></textarea>
+              <button class="btn-action success" type="submit" style="align-self:flex-end;">Add</button>
+            </form>
+            <div id="lead-notes" style="display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
     <!-- Full View Panel: Support Team -->
     <div class="full-view-panel" id="agents-panel">
       <div class="full-view-header">
@@ -1917,6 +1991,28 @@
   <script>
     const API_BASE = '/api/v1';
     let AUTH_TOKEN = localStorage.getItem('jix_token') || null;
+
+    // ---- Output encoding (audit C2) ------------------------------------------------
+    // Every value that came from the server (visitor names, messages, FAQs, agent names...)
+    // MUST pass through esc() before being placed in innerHTML or an attribute.
+    function esc(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+    // Safe argument for inline onclick="fn(...)" handlers.
+    function jsArg(value) {
+      return esc(JSON.stringify(value ?? ''));
+    }
+    // Only http(s) and same-origin relative URLs may be used in href/src.
+    function safeUrl(url) {
+      const u = String(url ?? '').trim();
+      if (/^https?:\/\//i.test(u) || (u.startsWith('/') && !u.startsWith('//'))) return esc(u);
+      return '#';
+    }
     let CURRENT_USER = null;
     let CURRENT_PROPERTY = null;
     let CONVERSATIONS = [];
@@ -2329,15 +2425,15 @@
         card.innerHTML = `
           <div class="conv-card-top">
             <div class="conv-visitor-name">
-              <span>👤</span> ${vName}
+              <span>👤</span> ${esc(vName)}
               ${conv.unread_count > 0 ? `<span class="rail-badge unread">${conv.unread_count}</span>` : ''}
             </div>
-            <div class="conv-time">${time}</div>
+            <div class="conv-time">${esc(time)}</div>
           </div>
-          <div class="conv-snippet">${snippet}</div>
+          <div class="conv-snippet">${esc(snippet)}</div>
           <div class="conv-card-bottom">
-            <span class="conv-tag">${conv.department?.name || 'General'}</span>
-            <span style="font-size:11px; color:var(--text-dim)">${vLoc}</span>
+            <span class="conv-tag">${esc(conv.department?.name || 'General')}</span>
+            <span style="font-size:11px; color:var(--text-dim)">${esc(vLoc)}</span>
           </div>
         `;
 
@@ -2384,7 +2480,7 @@
           } else {
             const lastSeenStr = v.last_seen_human || 'Offline';
             if (presenceBadge) {
-              presenceBadge.innerHTML = `<span style="background:#f1f5f9; color:#64748b; border:1px solid #e2e8f0; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:500; display:inline-flex; align-items:center; gap:5px;"><span class="offline-indicator-dot"></span> Offline (Left ${lastSeenStr})</span>`;
+              presenceBadge.innerHTML = `<span style="background:#f1f5f9; color:#64748b; border:1px solid #e2e8f0; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:500; display:inline-flex; align-items:center; gap:5px;"><span class="offline-indicator-dot"></span> Offline (Left ${esc(lastSeenStr)})</span>`;
             }
             if (intelPresence) intelPresence.innerHTML = `<span style="color:#64748b; font-weight:600;">⚪ Offline (Left Chat)</span>`;
             if (intelLastSeen) intelLastSeen.textContent = lastSeenStr;
@@ -2409,15 +2505,20 @@
           if (phoneEl) phoneEl.textContent = v.phone || 'N/A';
           const stageEl = document.getElementById('intel-lead-stage');
           if (stageEl) {
-            const st = (v.lead_status || 'new').toLowerCase();
+            // Lead stage comes from the Leads module (lead linked to this visitor).
+            const st = (ACTIVE_CONV.lead?.status || 'new').toLowerCase();
             const colors = {
               new: 'background:#eff6ff; color:#2563eb;',
               contacted: 'background:#fef3c7; color:#d97706;',
               qualified: 'background:#f3e8ff; color:#7e22ce;',
               converted: 'background:#ecfdf5; color:#059669;',
-              lost: 'background:#fef2f2; color:#dc2626;'
+              lost: 'background:#fef2f2; color:#dc2626;',
+              interested: 'background:#f3e8ff; color:#7e22ce;',
+              follow_up: 'background:#ffedd5; color:#c2410c;',
+              closed: 'background:#f1f5f9; color:#475569;'
             };
-            stageEl.innerHTML = `<span class="conv-tag" style="${colors[st] || colors.new}">${st.toUpperCase()}</span>`;
+            const label = ACTIVE_CONV.lead ? `${ACTIVE_CONV.lead.reference} · ${ACTIVE_CONV.lead.status_label}` : 'No lead yet';
+            stageEl.innerHTML = `<span class="conv-tag" style="${colors[st] || colors.new}">${esc(label)}</span>`;
           }
 
           // CSAT Rating
@@ -2425,8 +2526,8 @@
           if (csatEl) {
             if (ACTIVE_CONV.rating) {
               const stars = '⭐'.repeat(ACTIVE_CONV.rating);
-              const fb = ACTIVE_CONV.rating_feedback ? `<div style="font-size:11px; color:#64748b; margin-top:3px;">"${ACTIVE_CONV.rating_feedback}"</div>` : '';
-              csatEl.innerHTML = `<span style="color:#f59e0b; font-weight:700;">${stars} (${ACTIVE_CONV.rating}/5)</span>${fb}`;
+              const fb = ACTIVE_CONV.rating_feedback ? `<div style="font-size:11px; color:#64748b; margin-top:3px;">"${esc(ACTIVE_CONV.rating_feedback)}"</div>` : '';
+              csatEl.innerHTML = `<span style="color:#f59e0b; font-weight:700;">${stars} (${esc(ACTIVE_CONV.rating)}/5)</span>${fb}`;
             } else {
               csatEl.innerHTML = `<span style="color:#94a3b8;">Pending / Not rated</span>`;
             }
@@ -2456,7 +2557,7 @@
             assignBtn.disabled = true;
             assignBtn.title = 'You are currently assigned to this conversation.';
           } else if (ACTIVE_CONV.assigned_agent_id) {
-            assignBtn.innerHTML = `Assigned: ${ACTIVE_CONV.assigned_agent?.name || 'Agent'} (Reassign)`;
+            assignBtn.innerHTML = `Assigned: ${esc(ACTIVE_CONV.assigned_agent?.name || 'Agent')} (Reassign)`;
             assignBtn.className = 'btn-action warning';
             assignBtn.disabled = false;
             assignBtn.title = 'Click to reassign this conversation to yourself';
@@ -2512,15 +2613,15 @@
         if (msg.attachment_url) {
           const isImg = msg.message_type === 'image' || /\.(jpe?g|png|gif|webp|svg)($|\?)/i.test(msg.attachment_url);
           if (isImg) {
-            attachmentHtml = `<div style="margin-top:8px;"><a href="${msg.attachment_url}" target="_blank" rel="noopener noreferrer"><img src="${msg.attachment_url}" style="max-width:280px; max-height:200px; border-radius:8px; display:block; border:1px solid rgba(0,0,0,0.1);" alt="Attachment" /></a></div>`;
+            attachmentHtml = `<div style="margin-top:8px;"><a href="${safeUrl(msg.attachment_url)}" target="_blank" rel="noopener noreferrer"><img src="${safeUrl(msg.attachment_url)}" style="max-width:280px; max-height:200px; border-radius:8px; display:block; border:1px solid rgba(0,0,0,0.1);" alt="Attachment" /></a></div>`;
           } else {
-            attachmentHtml = `<div style="margin-top:8px;"><a href="${msg.attachment_url}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; gap:6px; background:rgba(0,0,0,0.06); padding:6px 12px; border-radius:6px; text-decoration:none; font-size:12px; font-weight:600; color:inherit;">📎 Download Document</a></div>`;
+            attachmentHtml = `<div style="margin-top:8px;"><a href="${safeUrl(msg.attachment_url)}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; gap:6px; background:rgba(0,0,0,0.06); padding:6px 12px; border-radius:6px; text-decoration:none; font-size:12px; font-weight:600; color:inherit;">📎 Download Document</a></div>`;
           }
         }
 
         group.innerHTML = `
-          <div class="stream-bubble">${msg.content || ''}${attachmentHtml}</div>
-          <div class="stream-meta">${sender} • ${time}</div>
+          <div class="stream-bubble">${esc(msg.content || '').replace(/\n/g, '<br>')}${attachmentHtml}</div>
+          <div class="stream-meta">${esc(sender)} • ${esc(time)}</div>
         `;
         stream.appendChild(group);
       });
@@ -2535,6 +2636,7 @@
       if (!file || !ACTIVE_CONV || !AUTH_TOKEN) return;
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('conversation_id', ACTIVE_CONV.id);
       try {
         showToast('Uploading file attachment...');
         const res = await fetch(`${API_BASE}/chat/upload`, {
@@ -2557,7 +2659,7 @@
             },
             body: JSON.stringify({
               content: `Attached: ${json.file_name}`,
-              attachment_url: json.url,
+              attachment_id: json.attachment_id,
               message_type: json.message_type
             })
           });
@@ -2621,9 +2723,9 @@
 
         if (matches.length > 0) {
           popup.innerHTML = matches.map(m => `
-            <div class="slash-item" onclick="insertCanned('${m.content.replace(/'/g, "\\'")}')">
-              <span class="slash-shortcut">${m.shortcut}</span>
-              <span class="slash-text">${m.content}</span>
+            <div class="slash-item" onclick="insertCanned(${jsArg(m.content)})">
+              <span class="slash-shortcut">${esc(m.shortcut)}</span>
+              <span class="slash-text">${esc(m.content)}</span>
             </div>
           `).join('');
           popup.style.display = 'flex';
@@ -2653,7 +2755,7 @@
       const toast = document.createElement('div');
       const bg = type === 'success' ? '#059669' : (type === 'danger' ? '#dc2626' : '#2563eb');
       toast.style.cssText = `background:${bg}; color:#ffffff; padding:12px 18px; border-radius:10px; font-size:13px; font-weight:600; box-shadow:0 8px 24px rgba(0,0,0,0.18); display:flex; align-items:center; gap:8px; pointer-events:auto; transition:all 0.25s ease;`;
-      toast.innerHTML = (type === 'success' ? '✓ ' : 'ℹ ') + message;
+      toast.textContent = (type === 'success' ? '✓ ' : 'ℹ ') + String(message ?? '');
 
       container.appendChild(toast);
       setTimeout(() => {
@@ -2757,9 +2859,9 @@
           CANNED_RESPONSES = json.data || [];
           const list = document.getElementById('intel-canned-list');
           list.innerHTML = CANNED_RESPONSES.map(c => `
-            <button class="demo-chip-btn" onclick="insertCanned('${c.content.replace(/'/g, "\\'")}')">
-              <span><strong>${c.shortcut}</strong></span>
-              <span style="font-size:11px; opacity:0.6">${c.content.substring(0, 20)}...</span>
+            <button class="demo-chip-btn" onclick="insertCanned(${jsArg(c.content)})">
+              <span><strong>${esc(c.shortcut)}</strong></span>
+              <span style="font-size:11px; opacity:0.6">${esc(c.content.substring(0, 20))}...</span>
             </button>
           `).join('');
         }
@@ -2822,7 +2924,11 @@
       const whUrlEl = document.getElementById('cust-webhook-url');
       if (whUrlEl) whUrlEl.value = conf.webhook_url || '';
       const whSecEl = document.getElementById('cust-webhook-secret');
-      if (whSecEl) whSecEl.value = conf.webhook_secret || '';
+      if (whSecEl) {
+        // The secret is never sent back to the browser; leave blank to keep the saved one.
+        whSecEl.value = '';
+        whSecEl.placeholder = conf.webhook_secret_set ? '•••••••• saved — leave blank to keep' : 'e.g. whsec_live_abcdef123456';
+      }
 
       // Operating Hours fields
       const oph = conf.operating_hours || {};
@@ -2853,14 +2959,14 @@
         <div style="display:flex; justify-content:space-between; align-items:center; background:#ffffff; border:1px solid var(--border-color); padding:10px 14px; border-radius:10px; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
           <div>
             <div style="font-weight:700; color:#0f172a; font-size:13px; display:flex; align-items:center; gap:6px;">
-              <span>🏢 ${d.name}</span>
+              <span>🏢 ${esc(d.name)}</span>
               <span class="conv-tag" style="background:${d.is_active ? '#ecfdf5' : '#f1f5f9'}; color:${d.is_active ? '#059669' : '#64748b'}; font-size:10px;">${d.is_active ? 'Active' : 'Disabled'}</span>
             </div>
-            ${d.description ? `<div style="font-size:11.5px; color:#64748b; margin-top:2px;">${d.description}</div>` : ''}
+            ${d.description ? `<div style="font-size:11.5px; color:#64748b; margin-top:2px;">${esc(d.description)}</div>` : ''}
           </div>
           <div style="display:flex; align-items:center; gap:6px;">
-            <button onclick="openEditDepartmentModal('${d.id}')" class="btn-action" style="padding:4px 8px; font-size:11px;" title="Edit department">✏️ Edit</button>
-            <button onclick="deleteDepartment('${d.id}')" style="background:#fee2e2; border:1px solid #fca5a5; color:#ef4444; cursor:pointer; font-size:11px; font-weight:600; padding:4px 8px; border-radius:6px;" title="Delete department">🗑️</button>
+            <button onclick="openEditDepartmentModal(${jsArg(d.id)})" class="btn-action" style="padding:4px 8px; font-size:11px;" title="Edit department">✏️ Edit</button>
+            <button onclick="deleteDepartment(${jsArg(d.id)})" style="background:#fee2e2; border:1px solid #fca5a5; color:#ef4444; cursor:pointer; font-size:11px; font-weight:600; padding:4px 8px; border-radius:6px;" title="Delete department">🗑️</button>
           </div>
         </div>
       `).join('');
@@ -3000,10 +3106,10 @@
       list.innerHTML = CANNED_RESPONSES.map(c => `
         <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid var(--border-color); padding:8px 12px; border-radius:8px; font-size:12px;">
           <div>
-            <strong style="color:#2563eb;">${c.shortcut}</strong>:
-            <span style="color:#334155; margin-left:4px;">${c.content.substring(0, 36)}${c.content.length > 36 ? '...' : ''}</span>
+            <strong style="color:#2563eb;">${esc(c.shortcut)}</strong>:
+            <span style="color:#334155; margin-left:4px;">${esc(c.content.substring(0, 36))}${c.content.length > 36 ? '...' : ''}</span>
           </div>
-          <button onclick="deleteCannedResponse('${c.id}')" style="background:none; border:none; color:#ef4444; cursor:pointer; font-size:12px; font-weight:600;">✕ Delete</button>
+          <button onclick="deleteCannedResponse(${jsArg(c.id)})" style="background:none; border:none; color:#ef4444; cursor:pointer; font-size:12px; font-weight:600;">✕ Delete</button>
         </div>
       `).join('');
     }
@@ -3189,7 +3295,7 @@
       const deptSelect = document.getElementById('transfer-department-select');
       const depts = CURRENT_PROPERTY?.departments || [];
       deptSelect.innerHTML = '<option value="">-- Keep Current Department --</option>' +
-        depts.map(d => `<option value="${d.id}" ${ACTIVE_CONV.department_id === d.id ? 'selected' : ''}>${d.name}</option>`).join('');
+        depts.map(d => `<option value="${esc(d.id)}" ${ACTIVE_CONV.department_id === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
 
       // Populate agents
       const agentSelect = document.getElementById('transfer-agent-select');
@@ -3198,7 +3304,7 @@
       }).then(r => r.json()).then(j => {
         if (j.success) {
           agentSelect.innerHTML = '<option value="">-- Any Available Agent --</option>' +
-            j.data.map(a => `<option value="${a.id}" ${ACTIVE_CONV.assigned_agent_id === a.id ? 'selected' : ''}>${a.name} (${a.is_online ? 'Online' : 'Offline'})</option>`).join('');
+            j.data.map(a => `<option value="${esc(a.id)}" ${ACTIVE_CONV.assigned_agent_id === a.id ? 'selected' : ''}>${esc(a.name)} (${a.is_online ? 'Online' : 'Offline'})</option>`).join('');
         }
       }).catch(() => {});
 
@@ -3297,147 +3403,283 @@
     }
 
     // =========================================================================
-    // CRM LEADS PIPELINE & CSV EXPORT
+    // LEADS MANAGEMENT (server-side company + website permissions)
     // =========================================================================
-    let CURRENT_LEAD_FILTER = '';
-    async function loadLeads(statusFilter = '') {
+    const LEAD_STATE = { page: 1, lastPage: 1, meta: null, current: null, searchTimer: null };
+    const LEAD_STATUS_STYLE = {
+      new: 'background:#eff6ff; color:#2563eb;',
+      contacted: 'background:#fef3c7; color:#b45309;',
+      interested: 'background:#f3e8ff; color:#7e22ce;',
+      follow_up: 'background:#ffedd5; color:#c2410c;',
+      converted: 'background:#ecfdf5; color:#059669;',
+      closed: 'background:#f1f5f9; color:#475569;'
+    };
+
+    function leadApi(path, options = {}) {
+      return fetch(`${API_BASE}${path}`, Object.assign({
+        headers: Object.assign({ 'Authorization': `Bearer ${AUTH_TOKEN}`, 'Accept': 'application/json' }, options.body ? { 'Content-Type': 'application/json' } : {})
+      }, options));
+    }
+
+    function fmtLeadDate(iso) {
+      if (!iso) return '—';
+      return new Date(iso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function leadFilterParams() {
+      const p = new URLSearchParams();
+      const map = { search: 'lead-f-search', property_id: 'lead-f-website', status: 'lead-f-status', service: 'lead-f-service', assigned_to: 'lead-f-assigned', date_from: 'lead-f-from', date_to: 'lead-f-to' };
+      Object.entries(map).forEach(([key, id]) => {
+        const v = (document.getElementById(id)?.value || '').trim();
+        if (v) p.set(key, v);
+      });
+      return p;
+    }
+
+    async function loadLeadMeta() {
+      if (LEAD_STATE.meta) return LEAD_STATE.meta;
+      const res = await leadApi('/leads/meta');
+      const json = await res.json();
+      if (!json.success) throw new Error('meta');
+      LEAD_STATE.meta = json.data;
+      const opts = (list, v, l) => list.map(o => `<option value="${esc(o[v])}">${esc(o[l])}</option>`).join('');
+      document.getElementById('lead-f-website').innerHTML = '<option value="">All websites</option>' + opts(json.data.websites, 'id', 'site_name');
+      document.getElementById('lead-f-status').innerHTML = '<option value="">All statuses</option>' + opts(json.data.statuses, 'value', 'label');
+      document.getElementById('lead-f-service').innerHTML = '<option value="">All services</option>' + opts(json.data.services, 'value', 'label');
+      document.getElementById('lead-f-assigned').innerHTML = '<option value="">Any staff</option><option value="me">Assigned to me</option><option value="unassigned">Unassigned</option>' + opts(json.data.staff, 'id', 'name');
+      document.getElementById('lead-e-status').innerHTML = opts(json.data.statuses, 'value', 'label');
+      document.getElementById('lead-e-service').innerHTML = '<option value="">— Not set —</option>' + opts(json.data.services, 'value', 'label');
+      document.getElementById('lead-e-assigned').innerHTML = '<option value="">— Unassigned —</option>' + opts(json.data.staff, 'id', 'name');
+      return json.data;
+    }
+
+    async function loadLeads() {
       if (!AUTH_TOKEN) return;
-      CURRENT_LEAD_FILTER = statusFilter;
       const tbody = document.getElementById('leads-table-tbody');
       if (!tbody) return;
-      tbody.innerHTML = '<tr><td colspan="6" style="padding:30px; text-align:center; color:var(--text-dim)">Loading CRM leads...</td></tr>';
-
+      tbody.innerHTML = '<tr><td colspan="10" style="padding:30px; text-align:center; color:var(--text-dim)">Loading leads…</td></tr>';
       try {
-        const url = statusFilter ? `${API_BASE}/crm/leads?status=${statusFilter}` : `${API_BASE}/crm/leads`;
-        const res = await fetch(url, {
-          headers: {
-            'Authorization': `Bearer ${AUTH_TOKEN}`,
-            'Accept': 'application/json'
-          }
-        });
+        await loadLeadMeta();
+        const params = leadFilterParams();
+        params.set('page', LEAD_STATE.page);
+        params.set('per_page', 25);
+        const res = await leadApi('/leads?' + params.toString());
         const json = await res.json();
-        if (json.success) {
-          const leads = json.data || [];
-          if (leads.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="padding:30px; text-align:center; color:var(--text-dim)">No captured leads found.</td></tr>';
-            return;
-          }
+        if (!json.success) throw new Error(json.message || 'Failed');
 
-          tbody.innerHTML = leads.map(l => {
-            const dateStr = l.created_at ? new Date(l.created_at).toLocaleDateString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : 'Recent';
-            const loc = [l.city, l.country_code].filter(Boolean).join(', ') || 'Online';
-            const st = (l.lead_status || 'new').toLowerCase();
-            return `
-              <tr style="border-bottom:1px solid var(--border-color); font-size:13px;">
-                <td style="padding:14px 16px;">
-                  <strong style="color:#0f172a; display:block;">${l.name || 'Anonymous'}</strong>
-                  <div style="font-size:12px; color:var(--text-muted);">${l.email || 'No email'} &bull; ${l.phone || 'No phone'}</div>
-                </td>
-                <td style="padding:14px 16px; max-width:260px;">
-                  <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#334155;" title="${l.initial_inquiry}">${l.initial_inquiry}</div>
-                  <div style="font-size:11px; color:#94a3b8; margin-top:2px;">Site: ${l.property_name || 'Website'}</div>
-                </td>
-                <td style="padding:14px 16px;">
-                  <span style="font-weight:600;">${loc}</span>
-                  <div style="font-size:11px; color:#94a3b8;">${l.browser || ''} ${l.os || ''} &bull; ${l.ip_address || ''}</div>
-                </td>
-                <td style="padding:14px 16px;">
-                  <select onchange="updateLeadStatus('${l.id}', this.value)" style="padding:4px 8px; border-radius:6px; border:1px solid var(--border-color); font-size:12px; font-weight:600; background:#fff; cursor:pointer;">
-                    <option value="new" ${st === 'new' ? 'selected' : ''}>NEW</option>
-                    <option value="contacted" ${st === 'contacted' ? 'selected' : ''}>CONTACTED</option>
-                    <option value="qualified" ${st === 'qualified' ? 'selected' : ''}>QUALIFIED</option>
-                    <option value="converted" ${st === 'converted' ? 'selected' : ''}>CONVERTED</option>
-                    <option value="lost" ${st === 'lost' ? 'selected' : ''}>LOST</option>
-                  </select>
-                </td>
-                <td style="padding:14px 16px; color:var(--text-muted); font-size:12px;">${dateStr}</td>
-                <td style="padding:14px 16px; text-align:right;">
-                  <button onclick="deleteLead('${l.id}')" style="background:none; border:none; color:#ef4444; font-size:12px; cursor:pointer; font-weight:600;">Delete</button>
-                </td>
-              </tr>
-            `;
-          }).join('');
+        LEAD_STATE.lastPage = json.meta.last_page || 1;
+        document.getElementById('leads-summary').textContent = `${json.meta.total} lead${json.meta.total === 1 ? '' : 's'}`;
+        document.getElementById('leads-page-label').textContent = `${json.meta.current_page} / ${LEAD_STATE.lastPage}`;
+        document.getElementById('leads-prev').disabled = json.meta.current_page <= 1;
+        document.getElementById('leads-next').disabled = json.meta.current_page >= LEAD_STATE.lastPage;
+
+        if (!json.data.length) {
+          tbody.innerHTML = '<tr><td colspan="10" style="padding:30px; text-align:center; color:var(--text-dim)">No leads match these filters.</td></tr>';
+          return;
         }
-      } catch(e) {
-        tbody.innerHTML = '<tr><td colspan="6" style="padding:30px; text-align:center; color:#ef4444">Failed to load CRM leads.</td></tr>';
+
+        const statusOptions = (current) => LEAD_STATE.meta.statuses.map(s => `<option value="${esc(s.value)}" ${s.value === current ? 'selected' : ''}>${esc(s.label)}</option>`).join('');
+        const staffOptions = (current) => '<option value="">— Unassigned —</option>' + LEAD_STATE.meta.staff.map(u => `<option value="${esc(u.id)}" ${current && u.id === current.id ? 'selected' : ''}>${esc(u.name)}</option>`).join('');
+
+        tbody.innerHTML = json.data.map(l => `
+          <tr style="border-bottom:1px solid var(--border-color);">
+            <td style="padding:12px 14px; font-family:monospace; font-weight:700; color:#334155; white-space:nowrap;">${esc(l.reference)}</td>
+            <td style="padding:12px 14px; min-width:210px; max-width:260px; overflow-wrap:anywhere;">
+              <strong style="color:#0f172a; display:block;">${esc(l.name || 'Name not provided')}</strong>
+              <div style="font-size:12px; color:var(--text-muted); word-break:break-all;">${esc(l.email || 'No email')}</div>
+              <div style="font-size:12px; color:var(--text-muted);">${esc(l.phone || '')}</div>
+            </td>
+            <td style="padding:12px 14px;">${esc(l.property?.site_name || '—')}${l.website ? `<div style="font-size:11px; color:var(--text-muted);">${esc(l.website)}</div>` : ''}</td>
+            <td style="padding:12px 14px;">${esc(l.interested_service_label || '—')}</td>
+            <td style="padding:12px 14px; max-width:240px;"><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${esc(l.inquiry_summary || '')}">${esc(l.inquiry_summary || '—')}</div></td>
+            <td style="padding:12px 14px;">
+              <select onchange="quickUpdateLead(${jsArg(l.id)}, { status: this.value })" style="padding:4px 6px; border-radius:6px; border:1px solid var(--border-color); font-size:12px; font-weight:600; ${LEAD_STATUS_STYLE[l.status] || ''}">${statusOptions(l.status)}</select>
+            </td>
+            <td style="padding:12px 14px;">
+              <select onchange="quickUpdateLead(${jsArg(l.id)}, { assigned_to: this.value || null })" style="padding:4px 6px; border-radius:6px; border:1px solid var(--border-color); font-size:12px; max-width:150px;">${staffOptions(l.assigned_to)}</select>
+            </td>
+            <td style="padding:12px 14px; font-size:12px; color:var(--text-muted); white-space:nowrap;">${esc(fmtLeadDate(l.created_at))}</td>
+            <td style="padding:12px 14px; font-size:12px; color:var(--text-muted); white-space:nowrap;">${esc(fmtLeadDate(l.last_interaction_at))}</td>
+            <td style="padding:12px 14px; text-align:right;"><button class="btn-action" style="padding:4px 10px; font-size:12px;" onclick="openLeadModal(${jsArg(l.id)})">View</button></td>
+          </tr>
+        `).join('');
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="10" style="padding:30px; text-align:center; color:#ef4444">Failed to load leads. Please try again.</td></tr>';
       }
     }
 
-    function filterLeads(status) {
-      document.querySelectorAll('#leads-panel .feed-tab').forEach(b => b.classList.remove('active'));
-      const id = status ? `lead-filter-${status}` : 'lead-filter-all';
-      const el = document.getElementById(id);
-      if (el) el.classList.add('active');
-      loadLeads(status);
+    function applyLeadFilters() { LEAD_STATE.page = 1; loadLeads(); }
+    function debouncedLeadSearch() { clearTimeout(LEAD_STATE.searchTimer); LEAD_STATE.searchTimer = setTimeout(applyLeadFilters, 350); }
+    function changeLeadPage(delta) {
+      const next = LEAD_STATE.page + delta;
+      if (next < 1 || next > LEAD_STATE.lastPage) return;
+      LEAD_STATE.page = next;
+      loadLeads();
+    }
+    function resetLeadFilters() {
+      ['lead-f-search', 'lead-f-website', 'lead-f-status', 'lead-f-service', 'lead-f-assigned', 'lead-f-from', 'lead-f-to'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+      applyLeadFilters();
     }
 
-    async function updateLeadStatus(leadId, newStatus) {
+    async function quickUpdateLead(id, changes) {
       try {
-        const res = await fetch(`${API_BASE}/crm/leads/${leadId}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Authorization': `Bearer ${AUTH_TOKEN}`
-          },
-          body: JSON.stringify({ lead_status: newStatus })
-        });
+        const res = await leadApi(`/leads/${encodeURIComponent(id)}/update`, { method: 'POST', body: JSON.stringify(changes) });
         const json = await res.json();
-        if (json.success) {
-          showToast(`Lead stage updated to ${newStatus.toUpperCase()}`);
-        } else {
-          showToast(json.message || 'Update failed', 'danger');
-        }
-      } catch(e) {
-        showToast('Error updating lead status', 'danger');
+        if (!res.ok || !json.success) throw new Error(json.message || 'Update failed');
+        showToast('Lead updated');
+        loadLeads();
+      } catch (e) {
+        showToast(e.message || 'Failed to update lead', 'danger');
+        loadLeads();
       }
     }
 
-    async function deleteLead(leadId) {
-      if (!confirm('Are you sure you want to permanently delete this lead record?')) return;
+    async function openLeadModal(id) {
       try {
-        const res = await fetch(`${API_BASE}/crm/leads/${leadId}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${AUTH_TOKEN}`,
-            'Accept': 'application/json'
-          }
-        });
+        await loadLeadMeta();
+        const res = await leadApi(`/leads/${encodeURIComponent(id)}`);
         const json = await res.json();
-        if (json.success) {
-          showToast('Lead deleted successfully.');
-          loadLeads(CURRENT_LEAD_FILTER);
-        } else {
-          showToast(json.message || 'Failed to delete lead', 'danger');
-        }
-      } catch(e) {
-        showToast('Error deleting lead', 'danger');
+        if (!json.success) throw new Error(json.message || 'Not found');
+        const l = json.data;
+        LEAD_STATE.current = l;
+
+        document.getElementById('lead-modal-title').textContent = `${l.reference} · ${l.name || 'Lead'}`;
+        document.getElementById('lead-modal-meta').textContent = `Website: ${l.property?.site_name || '—'} · Created ${fmtLeadDate(l.created_at)} · Last interaction ${fmtLeadDate(l.last_interaction_at)} · Source: ${l.source}`;
+        document.getElementById('lead-e-name').value = l.name || '';
+        document.getElementById('lead-e-email').value = l.email || '';
+        document.getElementById('lead-e-phone').value = l.phone || '';
+        document.getElementById('lead-e-website').value = l.website || '';
+        document.getElementById('lead-e-service').value = l.interested_service || '';
+        document.getElementById('lead-e-status').value = l.status;
+        document.getElementById('lead-e-assigned').value = l.assigned_to?.id || '';
+        document.getElementById('lead-e-inquiry').value = l.inquiry_summary || '';
+        document.getElementById('lead-delete-btn').style.display = LEAD_STATE.meta.can_delete ? 'inline-flex' : 'none';
+
+        const convEl = document.getElementById('lead-conversations');
+        convEl.innerHTML = l.conversations.length
+          ? l.conversations.map(c => `<div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid var(--border-color); border-radius:8px; padding:6px 10px;">
+                <span>${esc(fmtLeadDate(c.created_at))} · <span class="conv-tag">${esc(c.status)}</span></span>
+                <button class="btn-action" style="padding:2px 8px; font-size:11px;" onclick="openLeadConversation(${jsArg(c.id)})">Open chat</button>
+              </div>`).join('')
+          : '<div style="color:var(--text-muted);">No conversations linked.</div>';
+
+        renderLeadNotes(l.notes);
+        document.getElementById('modal-lead').style.display = 'flex';
+      } catch (e) {
+        showToast('Could not open this lead', 'danger');
       }
     }
 
-    async function exportLeadsCsv() {
+    function renderLeadNotes(notes) {
+      document.getElementById('lead-notes').innerHTML = notes.length
+        ? notes.map(n => `<div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:8px 10px; font-size:12px;">
+              <div style="white-space:pre-wrap; color:#1e293b;">${esc(n.body)}</div>
+              <div style="color:#92400e; font-size:11px; margin-top:4px;">${esc(n.author)} · ${esc(fmtLeadDate(n.created_at))}</div>
+            </div>`).join('')
+        : '<div style="font-size:12px; color:var(--text-muted);">No notes yet.</div>';
+    }
+
+    function closeLeadModal() {
+      document.getElementById('modal-lead').style.display = 'none';
+      LEAD_STATE.current = null;
+    }
+
+    async function saveLeadDetails() {
+      const l = LEAD_STATE.current;
+      if (!l) return;
+      const val = id => document.getElementById(id).value.trim();
+      const body = {
+        name: val('lead-e-name') || null,
+        email: val('lead-e-email') || null,
+        phone: val('lead-e-phone') || null,
+        website: val('lead-e-website') || null,
+        interested_service: val('lead-e-service') || null,
+        status: val('lead-e-status'),
+        assigned_to: val('lead-e-assigned') || null,
+        inquiry_summary: val('lead-e-inquiry') || null,
+      };
+      const btn = document.getElementById('lead-save-btn');
+      btn.disabled = true;
+      try {
+        const res = await leadApi(`/leads/${encodeURIComponent(l.id)}/update`, { method: 'POST', body: JSON.stringify(body) });
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          const firstError = json.errors ? Object.values(json.errors)[0][0] : json.message;
+          throw new Error(firstError || 'Save failed');
+        }
+        showToast('Lead saved');
+        closeLeadModal();
+        loadLeads();
+      } catch (e) {
+        showToast(e.message || 'Failed to save lead', 'danger');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function addLeadNote() {
+      const l = LEAD_STATE.current;
+      const input = document.getElementById('lead-note-input');
+      const text = input.value.trim();
+      if (!l || !text) return;
+      try {
+        const res = await leadApi(`/leads/${encodeURIComponent(l.id)}/notes`, { method: 'POST', body: JSON.stringify({ body: text }) });
+        const json = await res.json();
+        if (!json.success) throw new Error(json.message || 'Failed');
+        l.notes.unshift(json.data);
+        renderLeadNotes(l.notes);
+        input.value = '';
+      } catch (e) {
+        showToast('Failed to add note', 'danger');
+      }
+    }
+
+    async function deleteLeadFromModal() {
+      const l = LEAD_STATE.current;
+      if (!l || !confirm(`Delete lead ${l.reference}? Chats with this customer are kept.`)) return;
+      try {
+        const res = await leadApi(`/leads/${encodeURIComponent(l.id)}`, { method: 'DELETE' });
+        const json = await res.json();
+        if (!json.success) throw new Error(json.message || 'Failed');
+        showToast('Lead deleted');
+        closeLeadModal();
+        loadLeads();
+      } catch (e) {
+        showToast(e.message || 'Failed to delete lead', 'danger');
+      }
+    }
+
+    function openLeadConversation(conversationId) {
+      closeLeadModal();
+      switchMainView('inbox');
+      loadActiveConversation(conversationId, true);
+    }
+
+    async function exportLeads(format) {
       if (!AUTH_TOKEN) return;
+      const params = document.getElementById('lead-export-scope').value === 'all' ? new URLSearchParams() : leadFilterParams();
+      params.set('format', format);
+      params.set('scope', document.getElementById('lead-export-scope').value);
       try {
-        showToast('Generating CSV export file...');
-        const res = await fetch(`${API_BASE}/crm/leads/export`, {
-          headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
-        });
+        showToast(`Preparing ${format.toUpperCase()} download…`);
+        const res = await leadApi('/leads/export?' + params.toString());
         if (!res.ok) throw new Error('Export failed');
         const blob = await res.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `leads_export_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.download = `leads_${new Date().toISOString().slice(0, 10)}.${format}`;
         document.body.appendChild(a);
         a.click();
         a.remove();
         window.URL.revokeObjectURL(url);
-        showToast('Leads CSV downloaded successfully!');
-      } catch(e) {
+        showToast('Leads downloaded');
+      } catch (e) {
         showToast('Failed to export leads', 'danger');
       }
     }
 
+    Object.assign(window, { loadLeads, applyLeadFilters, debouncedLeadSearch, changeLeadPage, resetLeadFilters, quickUpdateLead, openLeadModal, closeLeadModal, saveLeadDetails, addLeadNote, deleteLeadFromModal, openLeadConversation, exportLeads });
     // =========================================================================
     // AUDIO PING & SOUND TOGGLE
     // =========================================================================
@@ -3499,13 +3741,13 @@
         const list = document.getElementById('agents-list');
         list.innerHTML = json.data.map(a => {
           const isMe = CURRENT_USER && CURRENT_USER.id === a.id;
-          const editBtn = `<button onclick="openEditAgentModal('${a.id}', '${a.name.replace(/'/g, "\\'")}', '${a.email.replace(/'/g, "\\'")}')" class="btn-action" style="font-size:11px; padding:4px 10px; color:#2563eb; border-color:#bfdbfe;">✏️ Edit / Password</button>`;
-          const removeBtn = !isMe ? `<button onclick="removeAgent('${a.id}', '${a.name.replace(/'/g, "\\'")}')" class="btn-action danger" style="font-size:11px; padding:4px 10px;">Remove</button>` : '';
+          const editBtn = `<button onclick="openEditAgentModal(${jsArg(a.id)}, ${jsArg(a.name)}, ${jsArg(a.email)})" class="btn-action" style="font-size:11px; padding:4px 10px; color:#2563eb; border-color:#bfdbfe;">✏️ Edit / Password</button>`;
+          const removeBtn = !isMe ? `<button onclick="removeAgent(${jsArg(a.id)}, ${jsArg(a.name)})" class="btn-action danger" style="font-size:11px; padding:4px 10px;">Remove</button>` : '';
           return `
             <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid var(--border-color); padding:12px 16px; border-radius:10px;">
               <div>
-                <strong style="color:#0f172a">${a.name} ${isMe ? '(You)' : ''}</strong>
-                <div style="font-size:12px; color:var(--text-muted)">${a.email}</div>
+                <strong style="color:#0f172a">${esc(a.name)} ${isMe ? '(You)' : ''}</strong>
+                <div style="font-size:12px; color:var(--text-muted)">${esc(a.email)}</div>
               </div>
               <div style="display:flex; align-items:center; gap:8px;">
                 <span class="conv-tag" style="background:${a.is_online ? '#ecfdf5' : '#f1f5f9'}; color:${a.is_online ? '#059669' : '#64748b'}; border:1px solid ${a.is_online ? '#a7f3d0' : '#e2e8f0'}">
@@ -3667,16 +3909,16 @@
             tbody.innerHTML = PLATFORM_TENANTS.map(t => `
               <tr style="border-bottom:1px solid var(--border-color);">
                 <td style="padding:12px 14px;">
-                  <strong style="color:#0f172a;">${t.name}</strong>
-                  <div style="font-size:11px; color:var(--text-dim);">ID: ${t.id.substring(0, 8)}...</div>
+                  <strong style="color:#0f172a;">${esc(t.name)}</strong>
+                  <div style="font-size:11px; color:var(--text-dim);">ID: ${esc(t.id.substring(0, 8))}...</div>
                 </td>
-                <td style="padding:12px 14px; color:var(--text-muted);">${t.email || 'N/A'}</td>
-                <td style="padding:12px 14px;"><span class="badge-plan">${t.plan || 'Free'}</span></td>
+                <td style="padding:12px 14px; color:var(--text-muted);">${esc(t.email || 'N/A')}</td>
+                <td style="padding:12px 14px;"><span class="badge-plan">${esc(t.plan || 'Free')}</span></td>
                 <td style="padding:12px 14px; color:#0f172a; font-weight:600;">${t.properties_count || 0}</td>
                 <td style="padding:12px 14px; color:#0f172a; font-weight:600;">${t.users_count || 0}</td>
-                <td style="padding:12px 14px;"><span class="badge-status-active">${t.status || 'active'}</span></td>
+                <td style="padding:12px 14px;"><span class="badge-status-active">${esc(t.status || 'active')}</span></td>
                 <td style="padding:12px 14px; text-align:right;">
-                  <button class="btn-primary" style="padding:6px 14px; font-size:12px; width:auto;" onclick="inspectTenant('${t.id}')">Inspect Workspace →</button>
+                  <button class="btn-primary" style="padding:6px 14px; font-size:12px; width:auto;" onclick="inspectTenant(${jsArg(t.id)})">Inspect Workspace →</button>
                 </td>
               </tr>
             `).join('');
@@ -3720,31 +3962,41 @@
 
     async function submitForgotPassword() {
       const email = document.getElementById('forgot-email').value.trim();
+      const token = document.getElementById('forgot-token').value;
       const newPass = document.getElementById('forgot-new-password').value;
       const btn = document.getElementById('forgot-submit-btn');
       const errEl = document.getElementById('forgot-error-msg');
       const succEl = document.getElementById('forgot-success-msg');
+      const isReset = Boolean(token);
 
       errEl.style.display = 'none';
       succEl.style.display = 'none';
+      if (isReset && newPass.length < 8) {
+        errEl.textContent = 'Password must be at least 8 characters.';
+        errEl.style.display = 'block';
+        return;
+      }
       btn.disabled = true;
-      btn.textContent = 'Updating...';
+      btn.textContent = isReset ? 'Updating...' : 'Sending...';
 
       try {
-        const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+        const res = await fetch(`${API_BASE}/auth/${isReset ? 'reset-password' : 'forgot-password'}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({ email: email, new_password: newPass })
+          body: JSON.stringify(isReset ? { email: email, token: token, password: newPass } : { email: email })
         });
         const json = await res.json();
         if (json.success) {
           succEl.textContent = json.message;
           succEl.style.display = 'block';
-          setTimeout(() => {
-            toggleForgotPass(false);
-            document.getElementById('login-email').value = email;
-            document.getElementById('login-password').value = newPass;
-          }, 1800);
+          if (isReset) {
+            document.getElementById('forgot-token').value = '';
+            if (window.history && window.history.replaceState) window.history.replaceState(null, '', '/login');
+            setTimeout(() => {
+              showAuthCard('login');
+              document.getElementById('login-email').value = email;
+            }, 1800);
+          }
         } else {
           errEl.textContent = json.message || 'Password reset failed.';
           errEl.style.display = 'block';
@@ -3754,7 +4006,7 @@
         errEl.style.display = 'block';
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Reset & Update Password';
+        btn.textContent = isReset ? 'Set New Password' : 'Send Reset Link';
       }
     }
     window.submitForgotPassword = submitForgotPassword;
@@ -3844,11 +4096,11 @@
               return `
                 <tr style="border-bottom:1px solid var(--border-color);">
                   <td style="padding:12px 14px;">
-                    <strong style="color:#0f172a;">${u.name}</strong>
+                    <strong style="color:#0f172a;">${esc(u.name)}</strong>
                   </td>
-                  <td style="padding:12px 14px; color:var(--text-muted); font-family:monospace;">${u.email}</td>
+                  <td style="padding:12px 14px; color:var(--text-muted); font-family:monospace;">${esc(u.email)}</td>
                   <td style="padding:12px 14px;">${roleBadge}</td>
-                  <td style="padding:12px 14px; color:#0f172a;">${u.tenant ? u.tenant.name : '<em style="color:var(--text-dim)">Platform Master</em>'}</td>
+                  <td style="padding:12px 14px; color:#0f172a;">${u.tenant ? esc(u.tenant.name) : '<em style="color:var(--text-dim)">Platform Master</em>'}</td>
                   <td style="padding:12px 14px;">
                     <span class="conv-tag" style="background:${u.is_online ? '#ecfdf5' : '#f1f5f9'}; color:${u.is_online ? '#059669' : '#64748b'};">
                       ${u.is_online ? '● Online' : 'Offline'}
@@ -3856,8 +4108,8 @@
                   </td>
                   <td style="padding:12px 14px; text-align:right;">
                     <div style="display:flex; gap:6px; justify-content:flex-end;">
-                      <button class="btn-action" style="padding:5px 12px; font-size:12px;" onclick="openEditUserModal('${u.id}')">✏️ Edit</button>
-                      ${u.role !== 'super_admin' ? `<button class="btn-action" style="padding:5px 12px; font-size:12px; color:#b91c1c; border-color:#fca5a5;" onclick="deletePlatformUser('${u.id}', '${u.name.replace(/'/g, "\\'")}')">🗑️ Delete</button>` : ''}
+                      <button class="btn-action" style="padding:5px 12px; font-size:12px;" onclick="openEditUserModal(${jsArg(u.id)})">✏️ Edit</button>
+                      ${u.role !== 'super_admin' ? `<button class="btn-action" style="padding:5px 12px; font-size:12px; color:#b91c1c; border-color:#fca5a5;" onclick="deletePlatformUser(${jsArg(u.id)}, ${jsArg(u.name)})">🗑️ Delete</button>` : ''}
                     </div>
                   </td>
                 </tr>
@@ -4037,15 +4289,15 @@
           <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
             <div>
               <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
-                <span class="conv-tag" style="background:#e0e7ff; color:#3730a3; font-weight:600;">🏷️ ${f.category || 'General'}</span>
-                <span style="font-size:11px; color:var(--text-dim);">Order: #${f.order || 1}</span>
+                <span class="conv-tag" style="background:#e0e7ff; color:#3730a3; font-weight:600;">🏷️ ${esc(f.category || 'General')}</span>
+                <span style="font-size:11px; color:var(--text-dim);">Order: #${esc(f.order || 1)}</span>
               </div>
-              <h4 style="font-size:15px; font-weight:700; color:#0f172a; margin-bottom:8px;">${f.question}</h4>
-              <p style="font-size:13px; color:var(--text-muted); line-height:1.5; white-space:pre-wrap;">${f.answer}</p>
+              <h4 style="font-size:15px; font-weight:700; color:#0f172a; margin-bottom:8px;">${esc(f.question)}</h4>
+              <p style="font-size:13px; color:var(--text-muted); line-height:1.5; white-space:pre-wrap;">${esc(f.answer)}</p>
             </div>
             <div style="display:flex; gap:6px;">
-              <button class="btn-action" style="padding:5px 12px; font-size:12px; color:#4338ca; border-color:#c7d2fe;" onclick="openEditFaqModal('${f.id}')">✏️ Edit</button>
-              <button class="btn-action" style="padding:5px 12px; font-size:12px; color:#b91c1c; border-color:#fca5a5;" onclick="deleteBladeFaq('${f.id}')">🗑️ Delete</button>
+              <button class="btn-action" style="padding:5px 12px; font-size:12px; color:#4338ca; border-color:#c7d2fe;" onclick="openEditFaqModal(${jsArg(f.id)})">✏️ Edit</button>
+              <button class="btn-action" style="padding:5px 12px; font-size:12px; color:#b91c1c; border-color:#fca5a5;" onclick="deleteBladeFaq(${jsArg(f.id)})">🗑️ Delete</button>
             </div>
           </div>
         </div>
@@ -4218,8 +4470,17 @@
     }
     window.submitUpdateUser = submitUpdateUser;
 
-    // Auto-init on page load if token is cached, otherwise check URL for /register
-    if (AUTH_TOKEN) {
+    // Opened from a password-reset e-mail: show the "set new password" step.
+    const resetParams = new URLSearchParams(window.location.search);
+    if (resetParams.get('reset_token') && resetParams.get('email')) {
+      showAuthCard('forgot');
+      document.getElementById('forgot-email').value = resetParams.get('email');
+      document.getElementById('forgot-token').value = resetParams.get('reset_token');
+      document.getElementById('forgot-password-group').style.display = 'block';
+      document.getElementById('forgot-new-password').required = true;
+      document.getElementById('forgot-subtitle').textContent = 'Choose a new password for your account';
+      document.getElementById('forgot-submit-btn').textContent = 'Set New Password';
+    } else if (AUTH_TOKEN) {
       initDashboard();
     } else {
       if (window.location.pathname.includes('/register') || window.location.hash === '#register') {

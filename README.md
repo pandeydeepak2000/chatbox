@@ -28,13 +28,13 @@ npm run dev
 
 ## 🔑 Login Credentials
 
-| Role | Email | Password | Access Level |
-|---|---|---|---|
-| **⚡ Super Admin (Master)** | `ambitionmanagements@gmail.com` | `password123` | **Full Platform Master**: Assign ChatBox to any company, edit any user's credentials (email, pass, role), view all tenants & stats |
-| **👑 Tenant Admin (Company Owner)** | `admin@chatbox.com` | `password123` | Full company control, widget customizer, team agents, CRM Leads, analytics |
-| **🎧 Support Agent** | `rahul@chatbox.com` | `password123` | Live chat workspace, visitor telemetry, canned responses (`/greet`, `/pricing`), CRM Leads |
+| Role | How to get access | Access Level |
+|---|---|---|
+| **⚡ Super Admin (Master)** | created by `php artisan chatbox:clean-accounts` (random password, shown once) | **Full Platform Master**: Assign ChatBox to any company, edit any user's credentials (email, pass, role), view all tenants & stats |
+| **👑 Tenant Admin (Company Owner)** | created by the Super Admin ("Assign ChatBox to Company") | Full company control, widget customizer, team agents, CRM Leads, analytics |
+| **🎧 Support Agent** | invited by the company admin (Team page) | Live chat workspace, visitor telemetry, canned responses (`/greet`, `/pricing`), CRM Leads |
 
-*(1-Click quick login buttons are available directly on the login screen for instant access!)*
+*No default passwords are shipped with ChatBox.*
 
 ---
 

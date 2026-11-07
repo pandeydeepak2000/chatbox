@@ -7,15 +7,20 @@ use App\Events\TypingEvent;
 use App\Http\Controllers\Controller;
 use App\Models\CannedResponse;
 use App\Models\Conversation;
+use App\Models\Department;
 use App\Models\Message;
 use App\Models\Property;
 use App\Models\User;
 use App\Models\Visitor;
+use App\Services\AttachmentService;
+use App\Services\Audit;
 use App\Services\TranscriptService;
 use App\Services\WebhookService;
+use App\Support\SafeText;
+use App\Support\Spreadsheet;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AgentChatController extends Controller
@@ -44,6 +49,10 @@ class AgentChatController extends Controller
             $query->whereHas('property', function ($q) use ($user) {
                 $q->where('tenant_id', $user->tenant_id);
             });
+        }
+        // Website-specific staff only see their assigned websites.
+        if (($restricted = $user->restrictedPropertyIds()) !== null) {
+            $query->whereIn('property_id', $restricted);
         }
 
         if (! empty($propertyId)) {
@@ -100,9 +109,16 @@ class AgentChatController extends Controller
             'property',
         ]);
 
+        $openTicket = \App\Models\Ticket::where('open_conversation_id', $conversation->id)->first();
+        // The visitor's lead (if any) for the side panel.
+        $lead = \App\Models\Lead::visibleTo($user)->where('leads.visitor_id', $conversation->visitor_id)->first();
+        $data = $conversation->toArray();
+        $data['open_ticket'] = $openTicket ? ['id' => $openTicket->id, 'reference' => $openTicket->reference, 'status' => $openTicket->status] : null;
+        $data['lead'] = $lead ? ['id' => $lead->id, 'reference' => $lead->reference, 'status' => $lead->status, 'status_label' => \App\Models\Lead::STATUSES[$lead->status] ?? $lead->status] : null;
+
         return response()->json([
             'success' => true,
-            'data' => $conversation,
+            'data' => $data,
         ]);
     }
 
@@ -117,8 +133,23 @@ class AgentChatController extends Controller
         $validated = $request->validate([
             'content' => ['required', 'string', 'max:5000'],
             'message_type' => ['nullable', 'string', 'in:text,image,file'],
-            'attachment_url' => ['nullable', 'string', 'url'],
+            'attachment_id' => ['nullable', 'string', 'max:64'],
+            'attachment_url' => ['nullable', 'string', 'max:2000'],
         ]);
+
+        $content = SafeText::message($validated['content']);
+        if ($content === '') {
+            return response()->json(['success' => false, 'message' => 'Message cannot be empty.'], 422);
+        }
+
+        $conversation->loadMissing('property');
+        [$attachmentRef, $attachmentType] = AttachmentService::resolveForMessage(
+            $validated['attachment_id'] ?? null,
+            $validated['attachment_url'] ?? null,
+            $conversation,
+            'user',
+            $user->id
+        );
 
         // Auto-assign to responding agent if unassigned
         $justJoined = false;
@@ -142,32 +173,31 @@ class AgentChatController extends Controller
                 'content' => "🟢 {$user->name} has joined the chat.",
                 'is_read' => true,
             ]);
-            try {
-                broadcast(new MessageSent($joinMsg))->toOthers();
-            } catch (\Throwable $e) {}
+            $this->safeBroadcast(fn () => broadcast(new MessageSent($joinMsg))->toOthers());
         }
 
-        // Anti-XSS Sanitization
-        $cleanContent = htmlspecialchars(trim(strip_tags($validated['content'])), ENT_QUOTES, 'UTF-8');
-
+        // Stored as plain text; the widget and dashboard escape on render (audit B2).
+        $openTicket = \App\Models\Ticket::where('open_conversation_id', $conversation->id)->first();
         $message = Message::create([
             'conversation_id' => $conversation->id,
+            'ticket_id' => $openTicket?->id,
             'sender_type' => 'agent',
             'sender_id' => $user->id,
-            'message_type' => $validated['message_type'] ?? 'text',
-            'content' => $cleanContent,
-            'attachment_url' => $validated['attachment_url'] ?? null,
+            'message_type' => $attachmentType ?? 'text',
+            'content' => $content,
+            'attachment_url' => $attachmentRef,
             'is_read' => true,
         ]);
 
         $message->load('sender');
 
-        // Realtime Event: broadcast to visitor on private-chat.{conversationId}
-        try {
-            broadcast(new MessageSent($message))->toOthers();
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('WebSocket broadcast skipped: ' . $e->getMessage());
+        // A human replied: AI stops for this conversation; sales SLA and ticket state are updated.
+        \App\Services\ConversationService::recordHumanReply($conversation, $user);
+        if ($openTicket) {
+            \App\Services\TicketService::staffReplied($openTicket, $user, $message);
         }
+
+        $this->safeBroadcast(fn () => broadcast(new MessageSent($message))->toOthers());
 
         return response()->json([
             'success' => true,
@@ -184,10 +214,14 @@ class AgentChatController extends Controller
         $conversation = $this->findAuthorizedConversation($user, $id);
 
         $validated = $request->validate([
-            'agent_id' => ['nullable', 'string', 'exists:users,id'],
+            'agent_id' => ['nullable', 'string'],
         ]);
 
         $targetAgentId = $validated['agent_id'] ?? $user->id;
+        // The assignee must belong to the same company as the conversation (audit H3).
+        if (! $this->agentBelongsToConversationTenant($targetAgentId, $conversation)) {
+            return $this->invalidField('agent_id', 'The selected agent is invalid.');
+        }
         $prevAgentId = $conversation->assigned_agent_id;
 
         $conversation->update([
@@ -206,9 +240,7 @@ class AgentChatController extends Controller
                 'content' => "🟢 {$agentName} has joined the chat.",
                 'is_read' => true,
             ]);
-            try {
-                broadcast(new MessageSent($joinMsg))->toOthers();
-            } catch (\Throwable $e) {}
+            $this->safeBroadcast(fn () => broadcast(new MessageSent($joinMsg))->toOthers());
         }
 
         return response()->json([
@@ -265,9 +297,18 @@ class AgentChatController extends Controller
         $conversation = $this->findAuthorizedConversation($user, $id);
 
         $validated = $request->validate([
-            'department_id' => ['nullable', 'string', 'exists:departments,id'],
-            'agent_id' => ['nullable', 'string', 'exists:users,id'],
+            'department_id' => ['nullable', 'string'],
+            'agent_id' => ['nullable', 'string'],
         ]);
+
+        // Department must belong to the conversation's website, agent to its company (audit H3).
+        if (! empty($validated['department_id'])
+            && ! Department::where('id', $validated['department_id'])->where('property_id', $conversation->property_id)->exists()) {
+            return $this->invalidField('department_id', 'The selected department is invalid.');
+        }
+        if (! empty($validated['agent_id']) && ! $this->agentBelongsToConversationTenant($validated['agent_id'], $conversation)) {
+            return $this->invalidField('agent_id', 'The selected agent is invalid.');
+        }
 
         $updates = [];
         if (array_key_exists('department_id', $validated)) {
@@ -290,9 +331,7 @@ class AgentChatController extends Controller
                 'content' => "🔄 Chat transferred to {$agentName}.",
                 'is_read' => true,
             ]);
-            try {
-                broadcast(new MessageSent($transferMsg))->toOthers();
-            } catch (\Throwable $e) {}
+            $this->safeBroadcast(fn () => broadcast(new MessageSent($transferMsg))->toOthers());
         }
 
         return response()->json([
@@ -333,12 +372,13 @@ class AgentChatController extends Controller
             'is_typing' => ['required', 'boolean'],
         ]);
 
-        broadcast(new TypingEvent(
+        // Realtime is optional on cPanel; an unreachable server must not cause a 500 (audit B3).
+        $this->safeBroadcast(fn () => broadcast(new TypingEvent(
             $conversation->id,
             'agent',
             $user->name,
             $validated['is_typing']
-        ))->toOthers();
+        ))->toOthers());
 
         return response()->json(['success' => true]);
     }
@@ -353,12 +393,14 @@ class AgentChatController extends Controller
 
         $query = CannedResponse::query();
 
-        if (! empty($propertyId)) {
-            $query->where('property_id', $propertyId);
-        } elseif (! $user->isSuperAdmin()) {
+        // Tenant scope is applied first and always (audit H2); property_id only narrows it.
+        if (! $user->isSuperAdmin()) {
             $query->whereHas('property', function ($q) use ($user) {
                 $q->where('tenant_id', $user->tenant_id);
             });
+        }
+        if (! empty($propertyId)) {
+            $query->where('property_id', $propertyId);
         }
 
         $responses = $query->orderBy('shortcut')->get();
@@ -481,7 +523,18 @@ class AgentChatController extends Controller
             });
         }
 
-        $leads = $query->paginate($request->query('per_page', 50));
+        // Filter in SQL, before pagination, so counts and pages are correct (audit M5).
+        if (! empty($status)) {
+            $query->where(function ($q) use ($status) {
+                $q->where('metadata->lead_status', $status);
+                if ($status === 'new') {
+                    $q->orWhereNull('metadata')->orWhereNull('metadata->lead_status');
+                }
+            });
+        }
+
+        $perPage = max(1, min(100, (int) $request->query('per_page', 50)));
+        $leads = $query->paginate($perPage);
 
         $data = collect($leads->items())->map(function ($visitor) {
             $meta = $visitor->metadata ?? [];
@@ -510,9 +563,6 @@ class AgentChatController extends Controller
             ];
         });
 
-        if (! empty($status)) {
-            $data = $data->filter(fn($item) => $item['lead_status'] === $status)->values();
-        }
 
         return response()->json([
             'success' => true,
@@ -550,13 +600,13 @@ class AgentChatController extends Controller
         ]);
 
         if (isset($validated['name'])) {
-            $visitor->name = $validated['name'];
+            $visitor->name = SafeText::field($validated['name']);
         }
         if (isset($validated['email'])) {
-            $visitor->email = $validated['email'];
+            $visitor->email = mb_strtolower(trim($validated['email']));
         }
         if (isset($validated['phone'])) {
-            $visitor->phone = $validated['phone'];
+            $visitor->phone = SafeText::field($validated['phone'], 50);
         }
 
         $meta = $visitor->metadata ?? [];
@@ -592,6 +642,7 @@ class AgentChatController extends Controller
         }
 
         $visitor = $query->firstOrFail();
+        Audit::record('lead.deleted', $visitor, ['property_id' => $visitor->property_id], tenantId: $visitor->property?->tenant_id);
         $visitor->delete();
 
         return response()->json([
@@ -613,12 +664,35 @@ class AgentChatController extends Controller
         $visitor = $query->firstOrFail();
         $visitor->is_blocked = ! $visitor->is_blocked;
         $visitor->save();
+        Audit::record($visitor->is_blocked ? 'visitor.blocked' : 'visitor.unblocked', $visitor, [], tenantId: $visitor->property?->tenant_id);
 
         return response()->json([
             'success' => true,
             'message' => $visitor->is_blocked ? 'Visitor blocked successfully.' : 'Visitor unblocked.',
             'is_blocked' => $visitor->is_blocked,
         ]);
+    }
+
+    /** Realtime is optional on cPanel: a failing broadcast must never break the request. */
+    private function safeBroadcast(callable $fn): void
+    {
+        try {
+            $fn();
+        } catch (\Throwable $e) {
+            Log::debug('Realtime broadcast skipped: ' . $e->getMessage());
+        }
+    }
+
+    private function agentBelongsToConversationTenant(string $agentId, Conversation $conversation): bool
+    {
+        $tenantId = $conversation->property()->value('tenant_id');
+
+        return User::where('id', $agentId)->where('tenant_id', $tenantId)->exists();
+    }
+
+    private function invalidField(string $field, string $message): JsonResponse
+    {
+        return response()->json(['success' => false, 'message' => $message, 'errors' => [$field => [$message]]], 422);
     }
 
     /**
@@ -633,6 +707,9 @@ class AgentChatController extends Controller
                 $q->where('tenant_id', $user->tenant_id);
             });
         }
+        if (($restricted = $user->restrictedPropertyIds()) !== null) {
+            $query->whereIn('property_id', $restricted);
+        }
 
         return $query->firstOrFail();
     }
@@ -643,26 +720,31 @@ class AgentChatController extends Controller
     public function uploadAttachment(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'file' => ['required', 'file', 'max:10240', 'mimes:jpeg,png,jpg,gif,webp,svg,pdf,txt,doc,docx,zip'],
+            'file' => ['required', 'file', 'max:' . (int) config('chatbox.attachments.max_kb', 10240)],
+            'conversation_id' => ['nullable', 'string'],
         ]);
 
-        $file = $request->file('file');
-        $ext = strtolower($file->getClientOriginalExtension());
-        $filename = 'agent_att_' . Str::random(24) . '.' . $ext;
-        $destPath = public_path('uploads/attachments');
-        if (! file_exists($destPath)) {
-            mkdir($destPath, 0755, true);
+        $user = $request->user();
+        $tenantId = $user->tenant_id;
+        $propertyId = null;
+        if (! empty($validated['conversation_id'])) {
+            $conversation = $this->findAuthorizedConversation($user, $validated['conversation_id']);
+            $propertyId = $conversation->property_id;
+            $tenantId = $conversation->property()->value('tenant_id');
         }
-        $file->move($destPath, $filename);
+        if (! $tenantId) {
+            return $this->invalidField('conversation_id', 'conversation_id is required for platform administrators.');
+        }
 
-        $isImage = in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']);
-        $url = url('uploads/attachments/' . $filename);
+        // Private storage + content sniffing (audit C4/H9).
+        $attachment = AttachmentService::store($request->file('file'), $tenantId, $propertyId, 'user', $user->id);
 
         return response()->json([
             'success' => true,
-            'url' => $url,
-            'file_name' => $file->getClientOriginalName(),
-            'message_type' => $isImage ? 'image' : 'file',
+            'attachment_id' => $attachment->id,
+            'url' => $attachment->signedUrl(),
+            'file_name' => $attachment->original_name,
+            'message_type' => $attachment->isImage() ? 'image' : 'file',
         ]);
     }
 
@@ -699,7 +781,7 @@ class AgentChatController extends Controller
             });
         }
 
-        $leads = $query->get();
+        Audit::record('crm.leads.exported', null, ['format' => 'csv', 'rows' => (clone $query)->count()]);
 
         $headers = [
             'Content-Type' => 'text/csv; charset=UTF-8',
@@ -709,7 +791,7 @@ class AgentChatController extends Controller
             'Expires' => '0',
         ];
 
-        return response()->stream(function () use ($leads) {
+        return response()->stream(function () use ($query) {
             $handle = fopen('php://output', 'w');
             fputs($handle, "\xEF\xBB\xBF"); // UTF-8 BOM
             fputcsv($handle, [
@@ -729,12 +811,14 @@ class AgentChatController extends Controller
                 'Date Captured',
             ]);
 
+            $query->chunk(500, function ($leads) use ($handle) {
             foreach ($leads as $visitor) {
                 $meta = $visitor->metadata ?? [];
                 $latestConv = $visitor->conversations->first();
                 $latestMsg = $latestConv?->messages?->first()?->content;
 
-                fputcsv($handle, [
+                // Every cell is neutralised against formula injection (audit M1).
+                fputcsv($handle, Spreadsheet::row([
                     $visitor->id,
                     $visitor->name ?: 'Anonymous',
                     $visitor->email ?: 'N/A',
@@ -749,8 +833,9 @@ class AgentChatController extends Controller
                     $visitor->os ?: '',
                     $visitor->current_page_url ?: '',
                     $visitor->created_at ? $visitor->created_at->format('Y-m-d H:i:s') : '',
-                ]);
+                ]));
             }
+            });
             fclose($handle);
         }, 200, $headers);
     }
@@ -768,11 +853,13 @@ class AgentChatController extends Controller
         $prop = $property->firstOrFail();
 
         $validated = $request->validate([
-            'webhook_url' => ['required', 'url'],
+            'webhook_url' => ['required', 'url', 'max:500'],
             'webhook_secret' => ['nullable', 'string', 'max:100'],
         ]);
 
-        $result = WebhookService::testPing($validated['webhook_url'], $validated['webhook_secret'] ?? null);
+        // SSRF-guarded inside WebhookService (audit H4). A blank secret means "use the saved one".
+        $result = WebhookService::testPing($validated['webhook_url'], ($validated['webhook_secret'] ?? null) ?: $prop->effectiveWebhookSecret());
+        Audit::record('property.webhook_tested', $prop, ['url_host' => parse_url($validated['webhook_url'], PHP_URL_HOST), 'success' => $result['success']]);
 
         return response()->json($result);
     }

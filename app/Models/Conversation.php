@@ -24,6 +24,18 @@ class Conversation extends Model
         'last_message_at',
         'closed_at',
         'transcript_emailed_at',
+        'customer_account_id',
+        'pre_verification',
+        'handler',
+        'handover_at',
+        'handover_by',
+        'ai_resumed_at',
+        'ai_resumed_by',
+        'language',
+        'clarifications_asked',
+        'first_human_response_at',
+        'ai_pending_since',
+        'sales_alert_sent_at',
     ];
 
     protected function casts(): array
@@ -33,6 +45,13 @@ class Conversation extends Model
             'last_message_at' => 'datetime',
             'closed_at' => 'datetime',
             'transcript_emailed_at' => 'datetime',
+            'handover_at' => 'datetime',
+            'ai_resumed_at' => 'datetime',
+            'first_human_response_at' => 'datetime',
+            'ai_pending_since' => 'datetime',
+            'sales_alert_sent_at' => 'datetime',
+            'pre_verification' => 'boolean',
+            'last_seq' => 'integer',
         ];
     }
 
@@ -58,12 +77,33 @@ class Conversation extends Model
 
     public function messages(): HasMany
     {
-        return $this->hasMany(Message::class)->orderBy('created_at', 'asc');
+        return $this->hasMany(Message::class)->orderBy('seq', 'asc')->orderBy('created_at', 'asc');
+    }
+
+    public function customerAccount(): BelongsTo
+    {
+        return $this->belongsTo(CustomerAccount::class);
+    }
+
+    public function tickets(): HasMany
+    {
+        return $this->hasMany(Ticket::class);
+    }
+
+    public function openTicket()
+    {
+        return $this->hasOne(Ticket::class, 'open_conversation_id');
+    }
+
+    public function isHumanHandled(): bool
+    {
+        return ($this->handler ?? 'ai') === 'human';
     }
 
     public function latestMessage()
     {
-        return $this->hasOne(Message::class)->latestOfMany();
+        // UUID keys are random, so "latest" must use the per-conversation sequence, not the id.
+        return $this->hasOne(Message::class)->ofMany('seq', 'max');
     }
 
     /**

@@ -23,3 +23,9 @@ node_modules/
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# ChatBox: never commit database dumps, local scratch scripts or user uploads (audit C5/C6)
+*.sql
+*.sql.gz
+/public/uploads/attachments/*
+!/public/uploads/attachments/.htaccess

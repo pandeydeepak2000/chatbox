@@ -47,7 +47,12 @@ class DashboardTest extends TestCase
 
     public function test_dashboard_page_loads_successfully(): void
     {
-        $response = $this->get('/dashboard');
+        // Old addresses open the new dashboard (query string kept for password-reset links).
+        $this->get('/dashboard')->assertRedirect('/app');
+        $this->get('/login?reset_token=abc')->assertRedirect('/app?reset_token=abc');
+
+        // The old Blade dashboard stays reachable as a fallback.
+        $response = $this->get('/legacy-dashboard');
         $response->assertStatus(200);
         $response->assertSee('ChatBox Workspace');
     }

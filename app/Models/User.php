@@ -107,4 +107,80 @@ class User extends Authenticatable
     {
         return $this->role === 'agent';
     }
+
+    /**
+     * Websites this staff member is explicitly assigned to (website-specific staff).
+     */
+    public function properties(): BelongsToMany
+    {
+        return $this->belongsToMany(Property::class, 'property_user')->withTimestamps();
+    }
+
+    /**
+     * Website restriction for this user:
+     *  - null  => no restriction inside their company (owners/admins, or agents with no website assignment)
+     *  - array => only these property ids (agents assigned to specific websites)
+     */
+    public function restrictedPropertyIds(): ?array
+    {
+        if ($this->isSuperAdmin() || $this->isAdmin()) {
+            return null;
+        }
+
+        if (! array_key_exists('restricted_property_ids', $this->runtimeCache)) {
+            $ids = $this->properties()->where('properties.tenant_id', $this->tenant_id)->pluck('properties.id')->all();
+            $this->runtimeCache['restricted_property_ids'] = $ids === [] ? null : $ids;
+        }
+
+        return $this->runtimeCache['restricted_property_ids'];
+    }
+
+    /** True when the user may work with data of this website. */
+    public function canAccessProperty(?Property $property): bool
+    {
+        if (! $property) {
+            return false;
+        }
+        if ($this->isSuperAdmin()) {
+            return true;
+        }
+        if ($property->tenant_id !== $this->tenant_id) {
+            return false;
+        }
+        $restricted = $this->restrictedPropertyIds();
+
+        return $restricted === null || in_array($property->id, $restricted, true);
+    }
+
+    /**
+     * May change this website's settings (widget, departments, FAQs, knowledge)?
+     * Company owners/admins: every company website. Agents: only websites where they were given
+     * the website-admin role (property_user.role = admin).
+     */
+    public function canManageProperty(?Property $property): bool
+    {
+        if (! $property) {
+            return false;
+        }
+        if ($this->isSuperAdmin()) {
+            return true;
+        }
+        if ($property->tenant_id !== $this->tenant_id) {
+            return false;
+        }
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        return \Illuminate\Support\Facades\DB::table('property_user')
+            ->where('user_id', $this->id)->where('property_id', $property->id)->where('role', 'admin')->exists();
+    }
+
+    public function isCompanyOwner(): bool
+    {
+        return $this->tenant_id !== null && $this->tenant?->owner_user_id === $this->id;
+    }
+
+    /** Per-request memo (not persisted, not serialised). */
+    private array $runtimeCache = [];
 }

@@ -64,9 +64,9 @@ class RealTimeChatTest extends TestCase
 
     public function test_widget_init_returns_config_and_visitor_token(): void
     {
-        $response = $this->postJson('/api/v1/widget/init', [
+        // Browsers always send the Origin header on cross-site requests; a body "origin" field is no longer trusted (audit H1).
+        $response = $this->withHeaders(['Origin' => 'https://chatbox.com'])->postJson('/api/v1/widget/init', [
             'property_key' => $this->property->public_key,
-            'origin' => 'https://chatbox.com',
             'name' => 'Suresh Raina',
             'email' => 'suresh@example.com',
         ]);
@@ -78,9 +78,10 @@ class RealTimeChatTest extends TestCase
                     'visitor' => ['id', 'token', 'name', 'email'],
                     'property' => ['id', 'site_name', 'widget_config'],
                     'departments',
-                    'broadcasting' => ['key', 'host', 'port', 'scheme'],
                 ],
-            ]);
+            ])
+            // cPanel: no WebSocket server, so no broadcasting details are sent (the widget polls).
+            ->assertJsonPath('data.broadcasting', null);
 
         $this->assertDatabaseHas('visitors', [
             'property_id' => $this->property->id,

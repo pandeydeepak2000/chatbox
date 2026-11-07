@@ -1,0 +1,20 @@
+# Legacy public uploads (created before attachments moved to private storage).
+# New uploads are stored in storage/app/private and served through signed links.
+# Files here must never execute or render as active content (audit C4).
+
+Options -Indexes -ExecCGI
+
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+
+<FilesMatch "(?i)\.(php\d?|phtml|phar|pl|py|cgi|sh|html?|xhtml|shtml|svgz?|xml|js|mjs)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+</FilesMatch>
+
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set Content-Security-Policy "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox"
+</IfModule>

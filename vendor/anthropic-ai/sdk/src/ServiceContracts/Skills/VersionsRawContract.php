@@ -1,0 +1,114 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Anthropic\ServiceContracts\Skills;
+
+use Anthropic\ClaudeCodeKeyCreatorNotMemberException;
+use Anthropic\CMEKContextUnavailableException;
+use Anthropic\CMEKKeyDisabledException;
+use Anthropic\CMEKKeyNetworkBlockedException;
+use Anthropic\Core\Contracts\BaseResponse;
+use Anthropic\Core\Exceptions\APIException;
+use Anthropic\OrganizationOnHoldException;
+use Anthropic\PageCursor;
+use Anthropic\RequestOptions;
+use Anthropic\Skills\Versions\DeletedSkillVersion;
+use Anthropic\Skills\Versions\SkillVersion;
+use Anthropic\Skills\Versions\VersionCreateParams;
+use Anthropic\Skills\Versions\VersionDeleteParams;
+use Anthropic\Skills\Versions\VersionListParams;
+use Anthropic\Skills\Versions\VersionRetrieveParams;
+
+/**
+ * @phpstan-import-type RequestOpts from \Anthropic\RequestOptions
+ */
+interface VersionsRawContract
+{
+    /**
+     * @api
+     *
+     * @param string $skillID Path param: Unique identifier for the skill.
+     *
+     * The format and length of IDs may change over time.
+     * @param array<string,mixed>|VersionCreateParams $params
+     * @param RequestOpts|null $requestOptions
+     *
+     * @return BaseResponse<SkillVersion>
+     *
+     * @throws ClaudeCodeKeyCreatorNotMemberException The API key belongs to the Claude Code workspace, and the user who created it is no longer a member of the organization or of that workspace.
+     * @throws CMEKKeyDisabledException The workspace's customer-managed encryption key is disabled or revoked. Re-enable the key, then retry.
+     * @throws CMEKKeyNetworkBlockedException The key management service's network access controls blocked the request to the workspace's customer-managed encryption key. The key itself may be healthy.
+     * @throws OrganizationOnHoldException Anthropic has disabled the organization for trust and safety reasons. An organization disabled for any other reason, such as billing, does not get this code. `appeal_url`, when present, is where the organization can appeal.
+     * @throws CMEKContextUnavailableException The workspace's encryption settings could not be read, so the request was refused. Retry in a few minutes.
+     * @throws APIException
+     */
+    public function create(
+        string $skillID,
+        array|VersionCreateParams $params,
+        RequestOptions|array|null $requestOptions = null,
+    ): BaseResponse;
+
+    /**
+     * @api
+     *
+     * @param string $version Path param: Identifies the skill version: a version ID, or the literal `latest` for the skill's most recent version.
+     *
+     * Requests carrying the `skills-2025-10-02` beta header address versions by their Unix epoch timestamp instead (e.g., "1759178010641129").
+     * @param array<string,mixed>|VersionRetrieveParams $params
+     * @param RequestOpts|null $requestOptions
+     *
+     * @return BaseResponse<SkillVersion>
+     *
+     * @throws ClaudeCodeKeyCreatorNotMemberException The API key belongs to the Claude Code workspace, and the user who created it is no longer a member of the organization or of that workspace.
+     * @throws OrganizationOnHoldException Anthropic has disabled the organization for trust and safety reasons. An organization disabled for any other reason, such as billing, does not get this code. `appeal_url`, when present, is where the organization can appeal.
+     * @throws APIException
+     */
+    public function retrieve(
+        string $version,
+        array|VersionRetrieveParams $params,
+        RequestOptions|array|null $requestOptions = null,
+    ): BaseResponse;
+
+    /**
+     * @api
+     *
+     * @param string $skillID Path param: Unique identifier for the skill.
+     *
+     * The format and length of IDs may change over time.
+     * @param array<string,mixed>|VersionListParams $params
+     * @param RequestOpts|null $requestOptions
+     *
+     * @return BaseResponse<PageCursor<SkillVersion>>
+     *
+     * @throws ClaudeCodeKeyCreatorNotMemberException The API key belongs to the Claude Code workspace, and the user who created it is no longer a member of the organization or of that workspace.
+     * @throws OrganizationOnHoldException Anthropic has disabled the organization for trust and safety reasons. An organization disabled for any other reason, such as billing, does not get this code. `appeal_url`, when present, is where the organization can appeal.
+     * @throws APIException
+     */
+    public function list(
+        string $skillID,
+        array|VersionListParams $params,
+        RequestOptions|array|null $requestOptions = null,
+    ): BaseResponse;
+
+    /**
+     * @api
+     *
+     * @param string $version Path param: Identifies the skill version by its version ID.
+     *
+     * Requests carrying the `skills-2025-10-02` beta header address versions by their Unix epoch timestamp instead (e.g., "1759178010641129").
+     * @param array<string,mixed>|VersionDeleteParams $params
+     * @param RequestOpts|null $requestOptions
+     *
+     * @return BaseResponse<DeletedSkillVersion>
+     *
+     * @throws ClaudeCodeKeyCreatorNotMemberException The API key belongs to the Claude Code workspace, and the user who created it is no longer a member of the organization or of that workspace.
+     * @throws OrganizationOnHoldException Anthropic has disabled the organization for trust and safety reasons. An organization disabled for any other reason, such as billing, does not get this code. `appeal_url`, when present, is where the organization can appeal.
+     * @throws APIException
+     */
+    public function delete(
+        string $version,
+        array|VersionDeleteParams $params,
+        RequestOptions|array|null $requestOptions = null,
+    ): BaseResponse;
+}

@@ -1,18 +1,17 @@
-import "./globals.css";
+import { Inter } from 'next/font/google';
+import './globals.css';
+
+// Self-hosted at build time (no request to Google from the browser).
+const inter = Inter({ subsets: ['latin'], display: 'swap', variable: '--font-inter' });
 
 export const metadata = {
-  title: "ChatBox — Skeuomorphic Live Support & CRM Workspace",
-  description: "Enterprise SaaS Live Chat & Visitor CRM Platform with tactile skeuomorphic design.",
+  title: 'ChatBox · Support Workspace',
+  description: 'Live chat, support tickets, leads and an AI knowledge base for your websites.',
 };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-      </head>
+    <html lang="en" className={inter.variable}>
       <body>{children}</body>
     </html>
   );

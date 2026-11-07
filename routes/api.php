@@ -1,7 +1,16 @@
 <?php
 
 use App\Http\Controllers\Api\AgentChatController;
+use App\Http\Controllers\Api\AttachmentController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\CustomerAuthController;
+use App\Http\Controllers\Api\CustomerController;
+use App\Http\Controllers\Api\KnowledgeController;
+use App\Http\Controllers\Api\LeadController;
+use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\PlatformController;
+use App\Http\Controllers\Api\TicketController;
+use App\Http\Controllers\Api\WorkspaceController;
 use App\Http\Controllers\Api\PropertyController;
 use App\Http\Controllers\Api\WidgetChatController;
 use Illuminate\Support\Facades\Route;
@@ -20,21 +29,46 @@ Route::prefix('v1')->group(function () {
     // =========================================================================
     // 1. PUBLIC WIDGET API (Client Sites & Visitors)
     // =========================================================================
-    Route::prefix('widget')->group(function () {
+    // Every public widget endpoint is rate limited per visitor and per IP (audit H6).
+    Route::prefix('widget')->middleware('throttle:widget')->group(function () {
         Route::get('status', [WidgetChatController::class, 'status']);
-        Route::post('init', [WidgetChatController::class, 'init']);
+        Route::post('init', [WidgetChatController::class, 'init'])->middleware('throttle:widget-init');
         Route::post('start', [WidgetChatController::class, 'startConversation'])->middleware('throttle:widget-messages');
         Route::post('messages', [WidgetChatController::class, 'sendMessage'])->middleware('throttle:widget-messages');
         Route::post('upload', [WidgetChatController::class, 'uploadAttachment'])->middleware('throttle:widget-messages');
         Route::post('conversations/{id}/rate', [WidgetChatController::class, 'submitRating'])->middleware('throttle:widget-messages');
         Route::post('conversations/{id}/transcript', [WidgetChatController::class, 'requestTranscript'])->middleware('throttle:widget-messages');
-        Route::post('typing', [WidgetChatController::class, 'typing']);
+        Route::post('typing', [WidgetChatController::class, 'typing'])->withoutMiddleware('throttle:widget')->middleware('throttle:widget-typing');
         Route::post('broadcasting/auth', [WidgetChatController::class, 'authBroadcast']);
         Route::get('faqs', [WidgetChatController::class, 'faqs']);
         Route::get('conversations/{id}/sync', [WidgetChatController::class, 'syncMessages']);
         Route::post('heartbeat', [WidgetChatController::class, 'heartbeat']);
+        Route::post('conversations/{id}/escalate', [WidgetChatController::class, 'escalate'])->middleware('throttle:widget-messages');
+
+        // Customer Support PIN identity (separate from staff auth). Strict per-IP/per-e-mail limits.
+        Route::prefix('customer')->group(function () {
+            Route::post('signup', [CustomerAuthController::class, 'signup'])->middleware('throttle:customer-signup');
+            Route::post('login', [CustomerAuthController::class, 'login'])->middleware('throttle:customer-login');
+            // Chat-style sign-in: tells the widget whether to ask for a new PIN or the existing one.
+            Route::post('identify', [CustomerAuthController::class, 'identify'])->middleware('throttle:customer-identify');
+            Route::post('forgot-pin', [CustomerAuthController::class, 'forgot'])->middleware('throttle:otp-request');
+            Route::post('reset-pin', [CustomerAuthController::class, 'reset'])->middleware('throttle:otp-verify');
+            Route::post('logout', [CustomerAuthController::class, 'logout']);
+            Route::get('me', [CustomerAuthController::class, 'me']);
+            Route::post('verify-email/request', [CustomerAuthController::class, 'requestVerification'])->middleware('throttle:otp-request');
+            Route::post('verify-email/confirm', [CustomerAuthController::class, 'confirmVerification'])->middleware('throttle:otp-verify');
+            Route::get('conversations/{id}', [CustomerAuthController::class, 'conversation']);
+        });
         Route::post('leave', [WidgetChatController::class, 'leave']);
     });
+
+    // Public branding for website-specific admin login pages (/{slug}/admin).
+    Route::get('public/websites/{slug}', [WorkspaceController::class, 'publicWebsite'])->middleware('throttle:widget');
+
+    // Private attachment downloads: signed, expiring links only (audit C4/H9).
+    Route::get('attachments/{attachment}', [AttachmentController::class, 'download'])
+        ->middleware(['signed', 'throttle:widget'])
+        ->name('attachments.download');
 
     // =========================================================================
     // 2. PUBLIC AUTHENTICATION ROUTES
@@ -43,12 +77,13 @@ Route::prefix('v1')->group(function () {
         Route::post('register-tenant', [AuthController::class, 'registerTenant']);
         Route::post('login', [AuthController::class, 'login']);
         Route::post('forgot-password', [AuthController::class, 'forgotPassword']);
+        Route::post('reset-password', [AuthController::class, 'resetPassword']);
     });
 
     // =========================================================================
     // 3. PROTECTED AGENT & ADMIN ROUTES (Sanctum Authenticated)
     // =========================================================================
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::middleware(['auth:sanctum', 'throttle:staff'])->group(function () {
 
         // Session & Profile
         Route::prefix('auth')->group(function () {
@@ -81,16 +116,16 @@ Route::prefix('v1')->group(function () {
         Route::post('properties/{id}/regenerate-keys', [PropertyController::class, 'regenerateKeys'])->middleware('role:admin,super_admin');
         Route::post('properties/{id}/test-webhook', [AgentChatController::class, 'testWebhook'])->middleware('role:admin,super_admin');
         Route::get('properties/{id}/departments', [PropertyController::class, 'listDepartments']);
-        Route::post('properties/{id}/departments', [PropertyController::class, 'storeDepartment'])->middleware('role:admin,super_admin');
-        Route::put('departments/{id}', [PropertyController::class, 'updateDepartment'])->middleware('role:admin,super_admin');
-        Route::post('departments/{id}/update', [PropertyController::class, 'updateDepartment'])->middleware('role:admin,super_admin');
-        Route::delete('departments/{id}', [PropertyController::class, 'destroyDepartment'])->middleware('role:admin,super_admin');
+        Route::post('properties/{id}/departments', [PropertyController::class, 'storeDepartment']); // website admins allowed (checked in controller)
+        Route::put('departments/{id}', [PropertyController::class, 'updateDepartment']); // website admins allowed (checked in controller)
+        Route::post('departments/{id}/update', [PropertyController::class, 'updateDepartment']); // website admins allowed (checked in controller)
+        Route::delete('departments/{id}', [PropertyController::class, 'destroyDepartment']); // website admins allowed (checked in controller)
         Route::post('properties/{id}/canned-responses', [AgentChatController::class, 'storeCannedResponse'])->middleware('role:admin,super_admin');
         Route::delete('canned-responses/{id}', [AgentChatController::class, 'destroyCannedResponse'])->middleware('role:admin,super_admin');
         Route::get('properties/{id}/faqs', [PropertyController::class, 'listFaqs']);
-        Route::post('properties/{id}/faqs', [PropertyController::class, 'storeFaq'])->middleware('role:admin,super_admin');
-        Route::put('faqs/{id}', [PropertyController::class, 'updateFaq'])->middleware('role:admin,super_admin');
-        Route::delete('faqs/{id}', [PropertyController::class, 'destroyFaq'])->middleware('role:admin,super_admin');
+        Route::post('properties/{id}/faqs', [PropertyController::class, 'storeFaq']); // website admins allowed (checked in controller)
+        Route::put('faqs/{id}', [PropertyController::class, 'updateFaq']); // website admins allowed (checked in controller)
+        Route::delete('faqs/{id}', [PropertyController::class, 'destroyFaq']); // website admins allowed (checked in controller)
 
         // Real-Time Chat Workspace (Live Inbox)
         Route::prefix('chat')->group(function () {
@@ -109,7 +144,81 @@ Route::prefix('v1')->group(function () {
             Route::get('canned-responses', [AgentChatController::class, 'cannedResponses']);
         });
 
-        // CRM / Leads Management
+        // Support tickets
+        Route::get('tickets', [TicketController::class, 'index']);
+        Route::post('tickets', [TicketController::class, 'store']);
+        Route::get('tickets/{id}', [TicketController::class, 'show']);
+        Route::post('tickets/{id}/reply', [TicketController::class, 'reply']);
+        Route::post('tickets/{id}/notes', [TicketController::class, 'note']);
+        Route::match(['put', 'patch'], 'tickets/{id}', [TicketController::class, 'update']);
+        Route::post('tickets/{id}/update', [TicketController::class, 'update']);
+
+        // Human takeover / AI control / internal notes / quotations
+        Route::post('chat/conversations/{id}/takeover', [TicketController::class, 'takeOver']);
+        Route::post('chat/conversations/{id}/resume-ai', [TicketController::class, 'resumeAi']);
+        Route::post('chat/conversations/{id}/notes', [TicketController::class, 'conversationNote']);
+        Route::post('chat/messages/{id}/quotation', [TicketController::class, 'markQuotation']);
+
+        // Notifications and follow-up tasks
+        Route::get('notifications', [NotificationController::class, 'index']);
+        Route::post('notifications/read-all', [NotificationController::class, 'markAllRead']);
+        Route::post('notifications/{id}/read', [NotificationController::class, 'markRead']);
+        Route::get('tasks', [NotificationController::class, 'tasks']);
+        Route::post('tasks/{id}/complete', [NotificationController::class, 'completeTask']);
+
+        // Telegram channels (company admins)
+        Route::get('settings/telegram', [NotificationController::class, 'channels']);
+        Route::post('settings/telegram', [NotificationController::class, 'saveChannel']);
+        Route::post('settings/telegram/{id}', [NotificationController::class, 'saveChannel']);
+        Route::delete('settings/telegram/{id}', [NotificationController::class, 'deleteChannel']);
+        Route::post('settings/telegram/{id}/test', [NotificationController::class, 'testChannel']);
+
+        // Knowledge base
+        Route::get('knowledge', [KnowledgeController::class, 'index']);
+        Route::post('knowledge/manual', [KnowledgeController::class, 'storeManual']);
+        Route::post('knowledge/upload', [KnowledgeController::class, 'upload']);
+        Route::post('knowledge/search-test', [KnowledgeController::class, 'testSearch']);
+        Route::get('knowledge/{id}', [KnowledgeController::class, 'show']);
+        Route::post('knowledge/{id}/approve', [KnowledgeController::class, 'approve']);
+        Route::post('knowledge/{id}/reject', [KnowledgeController::class, 'reject']);
+        Route::post('knowledge/{id}/archive', [KnowledgeController::class, 'archive']);
+
+        // AI settings, budget and usage
+        Route::get('ai/settings', [KnowledgeController::class, 'aiSettings']);
+        Route::post('ai/settings', [KnowledgeController::class, 'saveAiSettings']);
+        Route::get('ai/usage', [KnowledgeController::class, 'aiUsage']);
+        Route::post('ai/prices', [KnowledgeController::class, 'savePrice']);
+
+        // Company, websites, analytics
+        Route::get('company', [WorkspaceController::class, 'company']);
+        Route::post('company', [WorkspaceController::class, 'saveCompany']);
+        Route::post('websites/{id}/settings', [WorkspaceController::class, 'saveWebsite']);
+        Route::get('websites/{id}/staff', [WorkspaceController::class, 'websiteStaff']);
+        Route::post('websites/{id}/staff', [WorkspaceController::class, 'setWebsiteStaff']);
+        Route::get('analytics', [WorkspaceController::class, 'analytics']);
+
+        // Platform super admin: plans and subscriptions
+        Route::get('platform/overview', [PlatformController::class, 'overview'])->middleware('role:super_admin');
+        Route::post('platform/tenants/{id}/status', [PlatformController::class, 'setTenantStatus'])->middleware('role:super_admin');
+        Route::post('platform/tenants/{id}/subscription', [PlatformController::class, 'setSubscription'])->middleware('role:super_admin');
+        Route::post('platform/plans', [PlatformController::class, 'savePlan'])->middleware('role:super_admin');
+        Route::post('platform/plans/{code}', [PlatformController::class, 'savePlan'])->middleware('role:super_admin');
+
+        // Leads Management (company + website scoped)
+        // Website customers (Support PIN accounts): list, administrator PIN reset, unlock.
+        Route::get('customers', [CustomerController::class, 'index']);
+        Route::post('customers/{id}/reset-pin', [CustomerController::class, 'resetPin']);
+        Route::post('customers/{id}/unlock', [CustomerController::class, 'unlock']);
+        Route::get('leads', [LeadController::class, 'index']);
+        Route::get('leads/meta', [LeadController::class, 'meta']);
+        Route::get('leads/export', [LeadController::class, 'export']);
+        Route::get('leads/{id}', [LeadController::class, 'show']);
+        Route::match(['put', 'patch'], 'leads/{id}', [LeadController::class, 'update']);
+        Route::post('leads/{id}/update', [LeadController::class, 'update']); // hosts that block PUT/PATCH
+        Route::post('leads/{id}/notes', [LeadController::class, 'addNote']);
+        Route::delete('leads/{id}', [LeadController::class, 'destroy'])->middleware('role:admin,super_admin');
+
+        // Legacy visitor-based CRM endpoints (kept for the current dashboard; superseded by /leads)
         Route::prefix('crm')->group(function () {
             Route::get('leads/export', [AgentChatController::class, 'exportLeads']);
             Route::get('leads', [AgentChatController::class, 'leads']);

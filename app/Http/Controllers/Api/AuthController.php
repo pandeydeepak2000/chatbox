@@ -8,7 +8,10 @@ use App\Models\Department;
 use App\Models\Property;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\Audit;
+use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +29,14 @@ class AuthController extends Controller
      */
     public function registerTenant(Request $request): JsonResponse
     {
+        // Open self-registration has no e-mail verification yet (audit M6): disabled unless enabled in .env.
+        if (! config('chatbox.public_registration')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Self-registration is disabled. Please contact the platform administrator to create a company workspace.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'company_name' => ['required', 'string', 'max:255'],
             'name' => ['required', 'string', 'max:255'],
@@ -75,6 +86,9 @@ class AuthController extends Controller
                 ],
             ]);
 
+            $tenant->forceFill(['owner_user_id' => $user->id])->save();
+            \App\Http\Controllers\Api\PlatformController::createSubscription($tenant->id, (string) config('chatbox.default_plan', 'pro'));
+
             // 4. Create default departments
             $supportDept = Department::create([
                 'property_id' => $property->id,
@@ -106,10 +120,11 @@ class AuthController extends Controller
             return [
                 'user' => $user,
                 'tenant' => $tenant,
-                'property' => $property,
+                'property' => $property->toArrayFor($user),
                 'token' => $token,
             ];
         });
+        Audit::record('tenant.registered', $result['tenant'], [], $result['user']);
 
         return response()->json([
             'success' => true,
@@ -126,6 +141,7 @@ class AuthController extends Controller
         $credentials = $request->validate([
             'email' => ['required', 'string', 'email'],
             'password' => ['required', 'string'],
+            'website_slug' => ['nullable', 'string', 'max:60'],
         ]);
 
         // Dual-key brute force protection (Email + IP combination)
@@ -144,11 +160,23 @@ class AuthController extends Controller
 
         if (! $user || ! Hash::check($credentials['password'], $user->password)) {
             RateLimiter::hit($throttleKey, 900); // 15-minute lockout after 5 strikes
-            $remaining = RateLimiter::remaining($throttleKey, 5);
-
+            Audit::record('auth.login_failed', $user, ['email' => mb_strtolower($credentials['email'])], tenantId: $user?->tenant_id);
             throw ValidationException::withMessages([
-                'email' => ["The provided credentials do not match our records. ({$remaining} attempts remaining before temporary account lockout)"],
+                'email' => ['The provided credentials do not match our records.'],
             ]);
+        }
+
+        // Website-specific admin URL (/{slug}/admin): only staff with access to that website may sign
+        // in there. The error is identical to a wrong password (no hint which part was wrong).
+        if (! empty($credentials['website_slug'])) {
+            $site = Property::where('slug', $credentials['website_slug'])->first();
+            if (! $site || ! $user->canAccessProperty($site)) {
+                RateLimiter::hit($throttleKey, 900);
+                Audit::record('auth.login_failed', $user, ['website_slug' => $credentials['website_slug'], 'reason' => 'no_website_access'], tenantId: $user->tenant_id);
+                throw ValidationException::withMessages([
+                    'email' => ['The provided credentials do not match our records.'],
+                ]);
+            }
         }
 
         // Clear brute force strikes on successful login
@@ -168,20 +196,13 @@ class AuthController extends Controller
         ]);
 
         $token = $user->createToken('auth-token')->plainTextToken;
+        Audit::record('auth.login', $user, [], $user);
 
-        // Load properties belonging to tenant (or all for super_admin)
-        $properties = $user->tenant_id 
-            ? Property::where('tenant_id', $user->tenant_id)->get() 
-            : ($user->role === 'super_admin' ? Property::all() : []);
-
+        // Load properties belonging to tenant (or all for super_admin). Secrets only for admins (audit H5).
         return response()->json([
             'success' => true,
             'message' => 'Login successful.',
-            'data' => [
-                'user' => $user,
-                'properties' => $properties,
-                'token' => $token,
-            ],
+            'data' => array_merge($this->workspace($user), ['token' => $token]),
         ]);
     }
 
@@ -190,19 +211,39 @@ class AuthController extends Controller
      */
     public function me(Request $request): JsonResponse
     {
-        $user = $request->user()->load(['tenant', 'departments']);
-        
-        $properties = $user->tenant_id 
-            ? Property::where('tenant_id', $user->tenant_id)->with('departments')->get()
-            : ($user->role === 'super_admin' ? Property::with('departments')->get() : []);
-
         return response()->json([
             'success' => true,
-            'data' => [
-                'user' => $user,
-                'properties' => $properties,
-            ],
+            'data' => $this->workspace($request->user()),
         ]);
+    }
+
+    /**
+     * The signed-in staff member, the websites they may access (with admin URLs) and their
+     * permissions. Website-restricted agents only receive their own websites.
+     */
+    private function workspace(User $user): array
+    {
+        $user->load(['tenant', 'departments']);
+        $properties = $user->tenant_id
+            ? Property::where('tenant_id', $user->tenant_id)->with('departments')->get()
+            : ($user->isSuperAdmin() ? Property::with('departments')->get() : collect());
+        $properties = collect($properties)
+            ->filter(fn (Property $p) => $user->canAccessProperty($p))
+            ->map(fn (Property $p) => array_merge($p->toArrayFor($user), [
+                'admin_url' => $p->adminUrl(),
+                'can_manage' => $user->canManageProperty($p),
+            ]))->values();
+
+        return [
+            'user' => $user,
+            'properties' => $properties,
+            'permissions' => [
+                'is_super_admin' => $user->isSuperAdmin(),
+                'is_company_admin' => $user->isAdmin(),
+                'is_company_owner' => $user->isCompanyOwner(),
+                'website_restricted' => $user->restrictedPropertyIds() !== null,
+            ],
+        ];
     }
 
     /**
@@ -265,8 +306,21 @@ class AuthController extends Controller
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:8'],
             'department_ids' => ['nullable', 'array'],
-            'department_ids.*' => ['string', 'exists:departments,id'],
+            'department_ids.*' => ['string'],
+            'property_ids' => ['nullable', 'array'],
+            'property_ids.*' => ['string'],
         ]);
+
+        if (! $user->tenant_id) {
+            return response()->json(['success' => false, 'message' => 'Platform administrators must create agents from a company workspace.'], 422);
+        }
+        \App\Services\PlanLimits::assertCanAdd($user->tenant_id, 'staff');
+        if ($error = $this->rejectForeignDepartments($validated['department_ids'] ?? [], $user->tenant_id)) {
+            return $error;
+        }
+        if ($error = $this->rejectForeignProperties($validated['property_ids'] ?? [], $user->tenant_id)) {
+            return $error;
+        }
 
         $agent = DB::transaction(function () use ($validated, $user) {
             $newAgent = User::create([
@@ -281,14 +335,18 @@ class AuthController extends Controller
             if (! empty($validated['department_ids'])) {
                 $newAgent->departments()->sync($validated['department_ids']);
             }
+            if (! empty($validated['property_ids'])) {
+                $newAgent->properties()->sync($validated['property_ids']);
+            }
 
             return $newAgent;
         });
+        Audit::record('agent.created', $agent, ['email' => $agent->email, 'department_ids' => $validated['department_ids'] ?? [], 'property_ids' => $validated['property_ids'] ?? []]);
 
         return response()->json([
             'success' => true,
             'message' => 'Agent created successfully.',
-            'data' => $agent->load('departments'),
+            'data' => $agent->load(['departments', 'properties:id,site_name']),
         ], 201);
     }
 
@@ -300,7 +358,7 @@ class AuthController extends Controller
         $user = $request->user();
 
         $agents = User::where('tenant_id', $user->tenant_id)
-            ->with('departments')
+            ->with(['departments', 'properties:id,site_name'])
             ->orderBy('name')
             ->get();
 
@@ -334,27 +392,49 @@ class AuthController extends Controller
         $validated = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
             'email' => ['sometimes', 'string', 'email', 'max:255', 'unique:users,email,' . $agent->id],
-            'password' => ['nullable', 'string', 'min:6'],
+            'password' => ['nullable', 'string', 'min:8'],
             'department_ids' => ['nullable', 'array'],
-            'department_ids.*' => ['string', 'exists:departments,id'],
+            'department_ids.*' => ['string'],
+            'property_ids' => ['nullable', 'array'],
+            'property_ids.*' => ['string'],
         ]);
 
-        if (! empty($validated['password'])) {
+        if ($error = $this->rejectForeignDepartments($validated['department_ids'] ?? [], $agent->tenant_id)) {
+            return $error;
+        }
+        if ($error = $this->rejectForeignProperties($validated['property_ids'] ?? [], $agent->tenant_id)) {
+            return $error;
+        }
+        // Website assignment: [] = all company websites, otherwise only the listed ones.
+        $propertyIds = array_key_exists('property_ids', $validated) ? ($validated['property_ids'] ?? []) : null;
+        unset($validated['property_ids']);
+
+        $passwordChanged = ! empty($validated['password']);
+        if ($passwordChanged) {
             $validated['password'] = Hash::make($validated['password']);
         } else {
             unset($validated['password']);
         }
 
+        $departmentIds = $validated['department_ids'] ?? null;
+        unset($validated['department_ids']);
         $agent->update($validated);
 
-        if (isset($validated['department_ids'])) {
-            $agent->departments()->sync($validated['department_ids']);
+        if ($departmentIds !== null) {
+            $agent->departments()->sync($departmentIds);
         }
+        if ($propertyIds !== null) {
+            $agent->properties()->sync($propertyIds);
+        }
+        if ($passwordChanged && $agent->id !== $user->id) {
+            $agent->tokens()->delete();
+        }
+        Audit::record('agent.updated', $agent, ['fields' => array_keys($validated), 'password_changed' => $passwordChanged, 'property_ids' => $propertyIds]);
 
         return response()->json([
             'success' => true,
             'message' => 'Agent credentials and details updated successfully.',
-            'data' => $agent->load('departments'),
+            'data' => $agent->load(['departments', 'properties:id,site_name']),
         ]);
     }
 
@@ -378,6 +458,8 @@ class AuthController extends Controller
         }
 
         $agent = $query->firstOrFail();
+        Audit::record('agent.deleted', $agent, ['email' => $agent->email]);
+        $agent->tokens()->delete();
         $agent->delete();
 
         return response()->json([
@@ -428,33 +510,57 @@ class AuthController extends Controller
     }
 
     /**
-     * Password Reset (Forgot Password).
+     * Step 1 of password reset: e-mail a single-use, expiring reset token (audit C1).
+     * The response is identical whether or not the address exists (no account enumeration).
      */
     public function forgotPassword(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'email' => ['required', 'string', 'email'],
-            'new_password' => ['required', 'string', 'min:6'],
+            'email' => ['required', 'string', 'email', 'max:255'],
         ]);
 
+        $status = Password::sendResetLink(['email' => mb_strtolower(trim($validated['email']))]);
         $user = User::where('email', $validated['email'])->first();
-        if (! $user) {
-            return response()->json([
-                'success' => false,
-                'message' => 'No user account found with this email address.',
-            ], 404);
-        }
-
-        $user->update([
-            'password' => Hash::make($validated['new_password']),
-        ]);
-
-        // Revoke all existing session tokens on password change
-        $user->tokens()->delete();
+        Audit::record('auth.password_reset_requested', $user, ['status' => $status], tenantId: $user?->tenant_id);
 
         return response()->json([
             'success' => true,
-            'message' => 'Password reset successfully! You can now log in with your new password.',
+            'message' => 'If an account exists for this e-mail address, a password reset link has been sent. The link expires in 60 minutes.',
+        ]);
+    }
+
+    /**
+     * Step 2 of password reset: verify the e-mailed token, set the new password and
+     * revoke every existing login token.
+     */
+    public function resetPassword(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'email' => ['required', 'string', 'email', 'max:255'],
+            'token' => ['required', 'string', 'max:255'],
+            'password' => ['required', 'string', 'min:8', 'max:255'],
+        ]);
+
+        $status = Password::reset(
+            ['email' => mb_strtolower(trim($validated['email'])), 'token' => $validated['token'], 'password' => $validated['password']],
+            function (User $user, string $password) {
+                $user->forceFill(['password' => Hash::make($password), 'remember_token' => Str::random(60)])->save();
+                $user->tokens()->delete();
+                event(new PasswordReset($user));
+                Audit::record('auth.password_reset', $user, [], $user);
+            }
+        );
+
+        if ($status !== Password::PASSWORD_RESET) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This password reset link is invalid or has expired. Please request a new one.',
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Your password has been reset. Please sign in with your new password.',
         ]);
     }
 
@@ -491,18 +597,30 @@ class AuthController extends Controller
         $validated = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
             'email' => ['sometimes', 'string', 'email', 'max:255', 'unique:users,email,' . $targetUser->id],
-            'password' => ['nullable', 'string', 'min:6'],
+            'password' => ['nullable', 'string', 'min:8'],
             'role' => ['sometimes', 'string', 'in:super_admin,admin,agent'],
             'tenant_id' => ['nullable', 'string', 'exists:tenants,id'],
         ]);
 
-        if (! empty($validated['password'])) {
+        $passwordChanged = ! empty($validated['password']);
+        if ($passwordChanged) {
             $validated['password'] = Hash::make($validated['password']);
         } else {
             unset($validated['password']);
         }
 
+        $before = $targetUser->only(['role', 'tenant_id', 'email']);
         $targetUser->update($validated);
+        if ($passwordChanged || ($validated['role'] ?? $before['role']) !== $before['role'] || (array_key_exists('tenant_id', $validated) && $validated['tenant_id'] !== $before['tenant_id'])) {
+            if ($targetUser->id !== $currentUser->id) {
+                $targetUser->tokens()->delete();
+            }
+        }
+        Audit::record('platform.user_updated', $targetUser, [
+            'fields' => array_keys($validated),
+            'before' => $before,
+            'after' => $targetUser->only(['role', 'tenant_id', 'email']),
+        ]);
 
         return response()->json([
             'success' => true,
@@ -529,6 +647,7 @@ class AuthController extends Controller
         }
 
         $targetUser = User::findOrFail($id);
+        Audit::record('platform.user_deleted', $targetUser, ['email' => $targetUser->email, 'role' => $targetUser->role]);
         $targetUser->tokens()->delete();
         $targetUser->delete();
 
@@ -566,22 +685,72 @@ class AuthController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email,' . $user->id],
-            'password' => ['nullable', 'string', 'min:6'],
+            'password' => ['nullable', 'string', 'min:8'],
         ]);
 
-        if (! empty($validated['password'])) {
+        $passwordChanged = ! empty($validated['password']);
+        if ($passwordChanged) {
             $validated['password'] = Hash::make($validated['password']);
         } else {
             unset($validated['password']);
         }
 
         $user->update($validated);
+        if ($passwordChanged) {
+            // Sign out every other session; keep the one making this request.
+            $currentTokenId = $user->currentAccessToken()?->id;
+            $user->tokens()->when($currentTokenId, fn ($q) => $q->where('id', '!=', $currentTokenId))->delete();
+            Audit::record('auth.password_changed', $user);
+        }
 
         return response()->json([
             'success' => true,
             'message' => 'Your profile has been updated successfully!',
             'data' => $user->load('tenant'),
         ]);
+    }
+
+    /**
+     * Department ids must all belong to websites of the given company (audit H3).
+     */
+    private function rejectForeignDepartments(array $departmentIds, ?string $tenantId): ?JsonResponse
+    {
+        $departmentIds = array_values(array_unique(array_filter($departmentIds)));
+        if (empty($departmentIds)) {
+            return null;
+        }
+
+        $valid = Department::whereIn('id', $departmentIds)
+            ->whereHas('property', fn ($q) => $q->where('tenant_id', $tenantId))
+            ->count();
+
+        if ($valid !== count($departmentIds)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'One or more selected departments are invalid.',
+                'errors' => ['department_ids' => ['One or more selected departments are invalid.']],
+            ], 422);
+        }
+
+        return null;
+    }
+
+    /** Website ids must all belong to the given company. */
+    private function rejectForeignProperties(array $propertyIds, ?string $tenantId): ?JsonResponse
+    {
+        $propertyIds = array_values(array_unique(array_filter($propertyIds)));
+        if (empty($propertyIds)) {
+            return null;
+        }
+        if (Property::whereIn('id', $propertyIds)->where('tenant_id', $tenantId)->count() !== count($propertyIds)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'One or more selected websites are invalid.',
+                'errors' => ['property_ids' => ['One or more selected websites are invalid.']],
+            ], 422);
+        }
+
+        return null;
     }
 
     /**
@@ -598,13 +767,13 @@ class AuthController extends Controller
             'company_name' => ['required', 'string', 'max:255'],
             'admin_name' => ['required', 'string', 'max:255'],
             'admin_email' => ['required', 'string', 'email', 'unique:users,email'],
-            'admin_password' => ['required', 'string', 'min:6'],
+            'admin_password' => ['required', 'string', 'min:8'],
             'website_name' => ['required', 'string', 'max:255'],
             'website_url' => ['required', 'string'],
             'plan' => ['nullable', 'string', 'in:free,pro,enterprise'],
         ]);
 
-        $result = DB::transaction(function () use ($validated) {
+        $result = DB::transaction(function () use ($validated, $currentUser) {
             $tenant = Tenant::create([
                 'name' => $validated['company_name'],
                 'email' => $validated['admin_email'],
@@ -621,15 +790,16 @@ class AuthController extends Controller
                 'role' => 'admin',
                 'is_online' => false,
             ]);
+            $tenant->forceFill(['owner_user_id' => $adminUser->id])->save();
+            \App\Http\Controllers\Api\PlatformController::createSubscription($tenant->id, $validated['plan'] ?? 'pro');
 
-            $slug = Str::slug($validated['company_name']);
+            // Whitelist only the company's own website by default, not every domain (audit H1).
+            $host = parse_url($validated['website_url'], PHP_URL_HOST) ?: $validated['website_url'];
             $property = Property::create([
                 'tenant_id' => $tenant->id,
                 'site_name' => $validated['website_name'],
                 'site_url' => $validated['website_url'],
-                'public_key' => 'pk_live_' . $slug . '_' . Str::random(16),
-                'secret_key' => 'sk_live_' . $slug . '_' . Str::random(24),
-                'allowed_domains' => ['*'],
+                'allowed_domains' => [strtolower((string) $host)],
                 'widget_config' => [
                     'primary_color' => '#2563eb',
                     'welcome_message' => 'Hello! Welcome to ' . $validated['company_name'] . '. How can we help you?',
@@ -650,9 +820,10 @@ class AuthController extends Controller
             return [
                 'tenant' => $tenant,
                 'admin' => $adminUser,
-                'property' => $property,
+                'property' => $property->toArrayFor($currentUser),
             ];
         });
+        Audit::record('platform.tenant_created', $result['tenant'], ['company' => $validated['company_name']]);
 
         return response()->json([
             'success' => true,

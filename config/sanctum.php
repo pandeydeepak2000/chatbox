@@ -50,7 +50,7 @@ return [
     |
     */
 
-    'expiration' => null,
+    'expiration' => env('SANCTUM_EXPIRATION', 10080), // minutes; staff tokens expire after 7 days (audit H7)
 
     /*
     |--------------------------------------------------------------------------

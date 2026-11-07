@@ -48,7 +48,7 @@ This guide details everything required to deploy **ChatBox SaaS** onto any cPane
 ```env
 APP_NAME="ChatBox SaaS"
 APP_ENV=production
-APP_KEY=base64:33Y8D2185Tj90qRj51E2b4aW8FfK3hM9y1X0lVz4A7Q=
+APP_KEY=            # leave empty, then run: php artisan key:generate
 APP_DEBUG=false
 APP_URL=https://chat.yourdomain.com
 
@@ -73,7 +73,7 @@ Open the cPanel **Terminal** and run:
 ```bash
 cd public_html/chatbox
 php artisan migrate --force
-php artisan db:seed --force
+php artisan chatbox:clean-accounts --force   # creates the master accounts with random passwords (printed once)
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
@@ -126,5 +126,5 @@ ChatBox is designed with **Dual-Engine Realtime Architecture**:
 1. Open `https://chat.yourdomain.com` ➔ Super Admin login screen will appear.
 2. Log in with Super Admin credentials:
    - **Email**: `ambitionmanagements@gmail.com`
-   - **Password**: `password`
+   - **Password**: the random password printed by `php artisan chatbox:clean-accounts` (change it after first login)
 3. Open `https://chat.yourdomain.com/demo.html` ➔ Verify the live ChatBox demo page and test the widget.

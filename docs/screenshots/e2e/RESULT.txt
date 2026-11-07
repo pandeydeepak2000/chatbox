@@ -1,0 +1,29 @@
+PASS  widget loads on whitelisted site
+PASS  chat asks e-mail, then new customer creates a 6-digit PIN in boxes (no OTP)
+PASS  FAQ answers instantly (no AI cost)
+PASS  unanswerable question escalates to a ticket with reference
+PASS  website admin URL shows branded login and signs in
+INFO  reply round-trip 954ms
+INFO  note round-trip 1141ms
+PASS  ticket visible with summary; staff reply + internal note
+PASS  dashboard page: inbox
+PASS  dashboard page: customers
+PASS  dashboard page: leads
+PASS  dashboard page: knowledge
+PASS  dashboard page: ai
+PASS  dashboard page: websites
+PASS  dashboard page: team
+PASS  dashboard page: notifications
+PASS  dashboard page: analytics
+PASS  dashboard page: company
+PASS  knowledge approval workflow in UI
+PASS  new device: PIN login shows ticket and staff reply (not the internal note)
+PASS  wrong PIN gives generic error
+PASS  agent cannot sign in on another website admin URL
+PASS  super admin panel
+PASS  dashboard on a phone
+PASS  admin resets a forgotten PIN in Customers; customer signs in with the new PIN
+
+JS errors: 
+[widget-2] console: Failed to load resource: the server responded with a status of 404 (Not Found)
+[widget-1] console: Failed to load resource: the server responded with a status of 404 (Not Found)

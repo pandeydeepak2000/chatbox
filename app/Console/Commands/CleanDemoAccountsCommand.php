@@ -13,28 +13,39 @@ use Illuminate\Support\Str;
 
 class CleanDemoAccountsCommand extends Command
 {
-    protected $signature = 'chatbox:clean-accounts';
-    protected $description = 'Setup and keep only Super Admin and SaluteHost company admin, removing all other demo accounts';
+    protected $signature = 'chatbox:clean-accounts {--force : Required to run when APP_ENV=production} {--reset-passwords : Give the three master accounts new random passwords}';
+    protected $description = 'Ensure the Super Admin and SaluteHost accounts exist and remove the known demo accounts';
+
+    /**
+     * Only these demo accounts are removed. Earlier versions deleted EVERY other user on the
+     * platform, which is unsafe for a multi-company deployment.
+     */
+    private const DEMO_EMAILS = ['admin@chatbox.com', 'rahul@chatbox.com', 'priya@chatbox.com'];
+
+    /** @var array<string, string> e-mail => newly generated password (printed once) */
+    private array $generated = [];
 
     public function handle(): int
     {
+        if (app()->environment('production') && ! $this->option('force')) {
+            $this->error('Refusing to run in production without --force.');
+            return Command::FAILURE;
+        }
+        if (! $this->confirm('This creates/updates master accounts and deletes the known demo accounts. Continue?', ! $this->input->isInteractive())) {
+            return Command::FAILURE;
+        }
+
         $this->info('======================================================');
         $this->info('  ChatBox SaaS: Account Cleanup & Master Credentials  ');
         $this->info('======================================================');
 
         // 1. Setup / Update Super Admin
-        $superAdmin = User::updateOrCreate(
-            ['email' => 'ambitionmanagements@gmail.com'],
-            [
-                'tenant_id' => null,
-                'name' => 'Platform Super Admin',
-                'password' => Hash::make('password123'),
-                'role' => 'super_admin',
-                'is_online' => true,
-                'last_active_at' => now(),
-            ]
-        );
-        $this->info("✓ Super Admin verified: {$superAdmin->email} (Password: password123)");
+        $superAdmin = $this->ensureUser('ambitionmanagements@gmail.com', [
+            'tenant_id' => null,
+            'name' => 'Platform Super Admin',
+            'role' => 'super_admin',
+        ]);
+        $this->info("✓ Super Admin verified: {$superAdmin->email}");
 
         // 2. Setup / Update SaluteHost Tenant
         $saluteTenant = Tenant::firstOrCreate(
@@ -53,32 +64,20 @@ class CleanDemoAccountsCommand extends Command
         $this->info("✓ SaluteHost Tenant verified (ID: {$saluteTenant->id})");
 
         // 3. Setup / Update SaluteHost Company Admin
-        $saluteAdmin = User::updateOrCreate(
-            ['email' => 'admin@salutehost.com'],
-            [
-                'tenant_id' => $saluteTenant->id,
-                'name' => 'SaluteHost Admin',
-                'password' => Hash::make('password123'),
-                'role' => 'admin',
-                'is_online' => true,
-                'last_active_at' => now(),
-            ]
-        );
-        $this->info("✓ SaluteHost Company Admin verified: {$saluteAdmin->email} (Password: password123)");
+        $saluteAdmin = $this->ensureUser('admin@salutehost.com', [
+            'tenant_id' => $saluteTenant->id,
+            'name' => 'SaluteHost Admin',
+            'role' => 'admin',
+        ]);
+        $this->info("✓ SaluteHost Company Admin verified: {$saluteAdmin->email}");
 
         // 4. Setup / Update SaluteHost Support Agent
-        $saluteAgent = User::updateOrCreate(
-            ['email' => 'support@salutehost.com'],
-            [
-                'tenant_id' => $saluteTenant->id,
-                'name' => 'SaluteHost Support Agent',
-                'password' => Hash::make('password123'),
-                'role' => 'agent',
-                'is_online' => true,
-                'last_active_at' => now(),
-            ]
-        );
-        $this->info("✓ SaluteHost Support Agent verified: {$saluteAgent->email} (Password: password123)");
+        $saluteAgent = $this->ensureUser('support@salutehost.com', [
+            'tenant_id' => $saluteTenant->id,
+            'name' => 'SaluteHost Support Agent',
+            'role' => 'agent',
+        ]);
+        $this->info("✓ SaluteHost Support Agent verified: {$saluteAgent->email}");
 
         // 5. Setup / Verify SaluteHost Live Property
         $saluteProp = Property::firstOrCreate(
@@ -120,15 +119,9 @@ class CleanDemoAccountsCommand extends Command
         $saluteAgent->departments()->syncWithoutDetaching($deptIds);
         $this->info('✓ SaluteHost departments and agents mapped successfully.');
 
-        // 7. Delete ALL Other Demo / Test Users
-        $allowedEmails = [
-            'ambitionmanagements@gmail.com',
-            'admin@salutehost.com',
-            'support@salutehost.com',
-        ];
-
-        $deletedCount = User::whereNotIn('email', $allowedEmails)->delete();
-        $this->info("✓ Cleaned up {$deletedCount} demo/test users (e.g. admin@chatbox.com, rahul@chatbox.com, priya@chatbox.com).");
+        // 7. Delete only the known demo / test users
+        $deletedCount = User::whereIn('email', self::DEMO_EMAILS)->delete();
+        $this->info("✓ Removed {$deletedCount} known demo users (" . implode(', ', self::DEMO_EMAILS) . ').');
 
         // 8. Delete Dummy Demo Tenants (like ChatBox Technologies if present)
         $demoTenants = Tenant::whereNotIn('name', ['SaluteHost'])->get();
@@ -148,24 +141,37 @@ class CleanDemoAccountsCommand extends Command
         }
 
         $this->newLine();
-        $this->info('------------------------------------------------------');
-        $this->info('ACTIVE CREDENTIALS SUMMARY:');
-        $this->info('1. SUPER ADMIN:');
-        $this->info('   Email:    ambitionmanagements@gmail.com');
-        $this->info('   Password: password123');
-        $this->info('   Role:     Platform Super Admin');
-        $this->newLine();
-        $this->info('2. SALUTEHOST COMPANY ADMIN:');
-        $this->info('   Email:    admin@salutehost.com');
-        $this->info('   Password: password123');
-        $this->info('   Role:     SaluteHost Owner (Company Admin)');
-        $this->newLine();
-        $this->info('3. SALUTEHOST SUPPORT AGENT:');
-        $this->info('   Email:    support@salutehost.com');
-        $this->info('   Password: password123');
-        $this->info('   Role:     Frontline Support Agent');
-        $this->info('------------------------------------------------------');
+        if ($this->generated) {
+            $this->warn('NEW PASSWORDS (shown once — store them in your password manager now):');
+            foreach ($this->generated as $email => $password) {
+                $this->line("   {$email}  {$password}");
+            }
+        } else {
+            $this->info('Existing passwords were kept. Use --reset-passwords to generate new ones.');
+        }
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Create the account with a random password, or update its profile. An existing password
+     * is only replaced with --reset-passwords (never with a fixed, published password).
+     */
+    private function ensureUser(string $email, array $attributes): User
+    {
+        $user = User::firstOrNew(['email' => $email]);
+        $user->fill($attributes);
+
+        if (! $user->exists || $this->option('reset-passwords')) {
+            $password = Str::password(16);
+            $user->password = Hash::make($password);
+            $this->generated[$email] = $password;
+            if ($user->exists) {
+                $user->tokens()->delete();
+            }
+        }
+        $user->save();
+
+        return $user;
     }
 }
