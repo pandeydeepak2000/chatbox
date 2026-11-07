@@ -82,7 +82,10 @@ class WebhookService
                     : "Webhook endpoint returned status {$res->status()}.",
             ];
         } catch (\Throwable $e) {
-            return ['success' => false, 'message' => 'Connection failed: ' . $e->getMessage()];
+            // Generic message: low-level network errors would reveal details about other hosts.
+            \Illuminate\Support\Facades\Log::info('Webhook delivery failed', ['host' => parse_url($url, PHP_URL_HOST), 'error' => mb_substr($e->getMessage(), 0, 300)]);
+
+            return ['success' => false, 'message' => 'Connection failed: the webhook endpoint could not be reached.'];
         }
     }
 

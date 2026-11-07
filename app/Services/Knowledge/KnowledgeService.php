@@ -27,13 +27,12 @@ class KnowledgeService
 
     public static function createManual(User $user, ?string $propertyId, string $title, string $text, string $sourceType = 'manual'): KnowledgeDocument
     {
-        \App\Services\PlanLimits::assertCanAdd($user->tenant_id, 'knowledge_documents');
         $text = SafeText::message($text);
         if ($text === '') {
             throw ValidationException::withMessages(['content' => ['Content cannot be empty.']]);
         }
 
-        return DB::transaction(function () use ($user, $propertyId, $title, $text, $sourceType) {
+        return \App\Services\PlanLimits::withCapacity($user->tenant_id, 'knowledge_documents', fn () => DB::transaction(function () use ($user, $propertyId, $title, $text, $sourceType) {
             $doc = KnowledgeDocument::create([
                 'tenant_id' => $user->tenant_id,
                 'property_id' => $propertyId,
@@ -52,7 +51,7 @@ class KnowledgeService
             Audit::record('knowledge.created', $doc, ['source' => $sourceType]);
 
             return $doc;
-        });
+        }));
     }
 
     /** New document from a file, or a new version of an existing document. */
@@ -60,9 +59,6 @@ class KnowledgeService
     {
         if ($file->getSize() > DocumentExtractor::MAX_BYTES) {
             throw ValidationException::withMessages(['file' => ['The file must be 10 MB or smaller.']]);
-        }
-        if (! $existing) {
-            \App\Services\PlanLimits::assertCanAdd($user->tenant_id, 'knowledge_documents');
         }
         $kind = DocumentExtractor::detectKind($file->getRealPath(), $file->getClientOriginalName());
         if (! $kind) {
@@ -73,7 +69,7 @@ class KnowledgeService
         $path = 'knowledge/' . $tenantId . '/' . Str::uuid() . '.' . $kind;
         Storage::disk('local')->putFileAs(dirname($path), $file, basename($path));
 
-        [$doc, $version] = DB::transaction(function () use ($user, $file, $propertyId, $title, $existing, $path, $kind, $tenantId) {
+        $store = fn () => DB::transaction(function () use ($user, $file, $propertyId, $title, $existing, $path, $kind, $tenantId) {
             $doc = $existing ?? KnowledgeDocument::create([
                 'tenant_id' => $tenantId,
                 'property_id' => $propertyId,
@@ -100,6 +96,8 @@ class KnowledgeService
 
             return [$doc, $version];
         });
+        // New documents count against the plan (checked under a lock); new versions do not.
+        [$doc, $version] = $existing ? $store() : \App\Services\PlanLimits::withCapacity($user->tenant_id, 'knowledge_documents', $store);
 
         Audit::record('knowledge.uploaded', $doc, ['version' => $version->version, 'type' => $kind]);
         ProcessKnowledgeVersion::dispatch($version->id);

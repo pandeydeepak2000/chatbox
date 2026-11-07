@@ -3,8 +3,8 @@ PASS  chat asks e-mail, then new customer creates a 6-digit PIN in boxes (no OTP
 PASS  FAQ answers instantly (no AI cost)
 PASS  unanswerable question escalates to a ticket with reference
 PASS  website admin URL shows branded login and signs in
-INFO  reply round-trip 954ms
-INFO  note round-trip 1141ms
+INFO  reply round-trip 907ms
+INFO  note round-trip 1215ms
 PASS  ticket visible with summary; staff reply + internal note
 PASS  dashboard page: inbox
 PASS  dashboard page: customers

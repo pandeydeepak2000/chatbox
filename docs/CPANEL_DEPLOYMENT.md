@@ -67,6 +67,8 @@ Fill in `APP_URL`, `DB_*` and `MAIL_*`. Keep these values:
 | `CHATBOX_DEFAULT_PLAN` | `pro` (or `internal` for AmbitionHost itself) | Plan for companies created without a subscription |
 | `CHATBOX_DASHBOARD_ORIGINS` | empty when the dashboard is on the same domain | Extra origins allowed to call the staff API |
 | `CHATBOX_DEMO_PROPERTY_KEY` | optional | Widget shown on the home page |
+| `CHATBOX_LEGACY_DASHBOARD` | `false` | Old dashboard off (security) |
+| `CHATBOX_TRUSTED_PROXIES` | empty, or Cloudflare IP ranges | Real visitor IPs for rate limits; never `*` |
 
 AI provider keys and Telegram bot tokens are **not** in `.env`. Each company enters them in the dashboard (*AI Settings*, *Notifications*), and they are stored encrypted with `APP_KEY`.
 
@@ -77,7 +79,7 @@ php artisan migrate --force
 php artisan config:cache && php artisan route:cache && php artisan view:cache
 ```
 
-All 11 new migrations only add tables and columns. No existing rows are changed, except that:
+All 13 new migrations only add tables and columns (the last two, from the security review, add `users.website_access` and `ai_budgets.reserved_usd`). No existing rows are changed, except that:
 - existing websites get `identity_mode = guest_only`, so live widgets behave as before until you switch on the Support PIN;
 - leads are backfilled from existing visitors;
 - subscriptions are created from each company's current `plan`.
@@ -100,6 +102,7 @@ Use the CLI PHP path you noted in step 1. This single line runs:
 | minute | `chatbox:reminders`: quotation reminders (10 m / 30 m / 2 h), 30-working-minute sales alert, Telegram retries |
 | minute | `chatbox:process-ai`: AI replies that could not finish during the web request |
 | 10:00 IST daily | `chatbox:daily-digest`: unresolved tickets and pending tasks |
+| hourly | `chatbox:maintenance`: deletes uploads never sent in a chat (after 24 h), marks stuck document processing as failed |
 | daily | expired staff tokens and old failed jobs are pruned |
 
 `chatbox:env-check` shows when the cron last ran.
@@ -135,7 +138,7 @@ Follow `docs/PHASE3_REPORT.md` §8: new DB and mail passwords, **Regenerate Keys
 ## 9. Rollback
 
 ```bash
-php artisan migrate:rollback --step=11 --force   # removes only the tables/columns added by this release
+php artisan migrate:rollback --step=13 --force   # removes only the tables/columns added by this release
 ```
 
 Then restore the previous files. Leads, tickets, customer accounts and knowledge created after the upgrade are lost on rollback, so restore from the backup if needed.

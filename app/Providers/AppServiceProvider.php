@@ -23,6 +23,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Real visitor IPs behind a known reverse proxy (e.g. Cloudflare), so per-IP rate limits are
+        // not shared by everyone. Only explicitly listed proxy ranges are trusted — never "*".
+        $proxies = array_values(array_filter(array_map('trim', explode(',', (string) config('chatbox.trusted_proxies')))));
+        if ($proxies !== [] && ! in_array('*', $proxies, true)) {
+            \Illuminate\Http\Middleware\TrustProxies::at($proxies);
+        }
+
         // Staff password reset e-mails link back to the dashboard login page (audit C1).
         ResetPassword::createUrlUsing(function ($user, string $token) {
             return url('/login') . '?reset_token=' . urlencode($token) . '&email=' . urlencode($user->getEmailForPasswordReset());
@@ -69,13 +76,18 @@ class AppServiceProvider extends ServiceProvider
         });
 
         // Customer Support PIN endpoints (in addition to per-account lockout in CustomerAuthService).
+        // Security F5: keys use the lower-cased property key (lookups are case-insensitive, so mixed
+        // case must not create fresh buckets) and fall back to the customer session for requests
+        // without an e-mail (verify-email), so customers never share one bucket.
         $emailKey = fn (Request $r) => mb_strtolower(trim((string) $r->input('email')));
+        $accountKey = fn (Request $r) => ($emailKey($r) !== '' ? $emailKey($r) : 'sess:' . hash('sha256', (string) $r->header('X-Customer-Token')))
+            . '|' . mb_strtolower(trim((string) $r->input('property_key')));
         RateLimiter::for('customer-signup', fn (Request $r) => [
             Limit::perHour(5)->by('cs:' . $r->ip())->response($tooMany('Too many sign-up attempts. Please try again later.')),
         ]);
         RateLimiter::for('customer-login', fn (Request $r) => [
             Limit::perMinute(10)->by('cl:' . $r->ip())->response($tooMany('Too many sign-in attempts. Please wait a minute.')),
-            Limit::perMinute(10)->by('cl-e:' . $emailKey($r))->response($tooMany('Too many sign-in attempts. Please wait a minute.')),
+            Limit::perMinute(10)->by('cl-e:' . $accountKey($r))->response($tooMany('Too many sign-in attempts. Please wait a minute.')),
         ]);
         // Chat sign-in step that tells the widget whether an e-mail already has a PIN: limited
         // more strictly per IP so it cannot be used to check large lists of e-mail addresses.
@@ -84,11 +96,26 @@ class AppServiceProvider extends ServiceProvider
             Limit::perHour(40)->by('ci-h:' . $r->ip())->response($tooMany('Too many attempts. Please try again later.')),
         ]);
         RateLimiter::for('otp-request', fn (Request $r) => [
-            Limit::perMinutes(15, 3)->by('or-e:' . $emailKey($r) . '|' . $r->input('property_key'))->response($tooMany('Too many code requests. Please wait 15 minutes.')),
+            Limit::perMinutes(15, 3)->by('or-e:' . $accountKey($r))->response($tooMany('Too many code requests. Please wait 15 minutes.')),
+            Limit::perDay(8)->by('or-d:' . $accountKey($r))->response($tooMany('Too many code requests today. Please try again tomorrow.')),
             Limit::perHour(10)->by('or:' . $r->ip())->response($tooMany('Too many code requests. Please try again later.')),
         ]);
         RateLimiter::for('otp-verify', fn (Request $r) => [
             Limit::perMinutes(15, 10)->by('ov:' . $r->ip())->response($tooMany('Too many attempts. Please wait 15 minutes.')),
+            // Per account across all IPs, so a distributed attack cannot keep guessing codes.
+            Limit::perDay(25)->by('ov-a:' . $accountKey($r))->response($tooMany('Too many attempts today. Please try again tomorrow.')),
+        ]);
+
+        // Security (logic F3): new conversations per IP and website, so nobody can exhaust a
+        // company's monthly chat quota or AI budget by creating visitors in a loop.
+        // Security (files F2): uploads per visitor and per IP, on top of the storage quotas.
+        RateLimiter::for('widget-uploads', fn (Request $r) => [
+            Limit::perHour(15)->by('wu:' . $r->ip() . '|' . (string) $r->input('visitor_token'))->response($tooMany('Upload limit reached. Please try again later.')),
+            Limit::perHour(40)->by('wu-ip:' . $r->ip())->response($tooMany('Upload limit reached. Please try again later.')),
+        ]);
+        RateLimiter::for('widget-start', fn (Request $r) => [
+            Limit::perHour(15)->by('ws:' . $r->ip() . '|' . mb_strtolower((string) $r->input('property_key')))->response($tooMany('Too many new chats from your network. Please continue your existing chat or try again later.')),
+            Limit::perDay(60)->by('ws-d:' . $r->ip())->response($tooMany('Too many new chats from your network today.')),
         ]);
 
         // Authenticated staff API.

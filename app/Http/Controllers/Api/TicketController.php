@@ -310,6 +310,8 @@ class TicketController extends Controller
             'assigned_to' => $t->assignee ? ['id' => $t->assignee->id, 'name' => $t->assignee->name] : null,
             'customer_name' => $t->visitor?->name,
             'customer_email' => $t->customerAccount?->email ?? $t->visitor?->email,
+            // Security S17: e-mail addresses are self-declared until confirmed with an e-mailed code.
+            'customer_verified' => (bool) $t->customerAccount?->email_verified_at,
             'conversation_id' => $t->conversation_id,
             'created_at' => $t->created_at?->toIso8601String(),
             'updated_at' => $t->updated_at?->toIso8601String(),

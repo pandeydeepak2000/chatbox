@@ -24,6 +24,9 @@ Options -MultiViews -Indexes
     RewriteCond %{REQUEST_URI} (.+)/$
     RewriteRule ^ %1 [L,R=301]
 
+    # Dashboard pages always go through Laravel, so its security headers (CSP, anti-framing) apply.
+    RewriteRule ^app/(index|404|_not-found)\.html$ index.php [L]
+
     # Serve real files from public/ (widget.js, demo.html, built dashboard assets, ...)
     RewriteCond %{REQUEST_URI} !^/public/
     RewriteCond %{DOCUMENT_ROOT}/public/$1 -f
@@ -46,3 +49,12 @@ Options -MultiViews -Indexes
         Require all denied
     </IfModule>
 </FilesMatch>
+
+# Security headers as a fallback for files Apache serves directly (built dashboard assets, widget.js).
+# Laravel sets these (and a Content-Security-Policy) on every page it serves; "setifempty" never
+# overrides them.
+<IfModule mod_headers.c>
+    Header always setifempty X-Content-Type-Options "nosniff"
+    Header always setifempty Referrer-Policy "strict-origin-when-cross-origin"
+    Header always setifempty X-Frame-Options "SAMEORIGIN"
+</IfModule>

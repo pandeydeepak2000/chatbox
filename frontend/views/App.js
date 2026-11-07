@@ -31,7 +31,10 @@ function websiteSlugFromPath() {
 function parseHash() {
   const h = window.location.hash.replace(/^#\/?/, '');
   const [view, qs] = h.split('?');
-  return { view: view || 'overview', params: Object.fromEntries(new URLSearchParams(qs || '')) };
+  const params = Object.fromEntries(
+    [...new URLSearchParams(qs || '')].filter(([, v]) => /^[A-Za-z0-9_-]{1,64}$/.test(v)),
+  );
+  return { view: /^[a-z]{1,20}$/.test(view) ? view : 'overview', params };
 }
 
 export function navigate(view, params = {}) {

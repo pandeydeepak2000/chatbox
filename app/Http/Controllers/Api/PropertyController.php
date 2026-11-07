@@ -26,6 +26,9 @@ class PropertyController extends Controller
         if (! $user->isSuperAdmin()) {
             $query->where('tenant_id', $user->tenant_id);
         }
+        if (($restricted = $user->restrictedPropertyIds()) !== null) {
+            $query->whereIn('id', $restricted);
+        }
 
         $properties = $query->latest()->get()->map(fn (Property $p) => $p->toArrayFor($user))->values();
 
@@ -61,22 +64,20 @@ class PropertyController extends Controller
             return response()->json(['success' => false, 'message' => 'Create websites from the platform panel for a specific company.'], 422);
         }
 
-        \App\Services\PlanLimits::assertCanAdd($user->tenant_id, 'websites');
-
         $domains = $validated['allowed_domains'] ?? [];
         $host = parse_url($validated['site_url'], PHP_URL_HOST);
         if ($host && ! in_array($host, $domains)) {
             $domains[] = $host;
         }
 
-        $property = Property::create([
+        $property = \App\Services\PlanLimits::withCapacity($user->tenant_id, 'websites', fn () => Property::create([
             'tenant_id' => $user->tenant_id,
             'site_name' => $validated['site_name'],
             'site_url' => $validated['site_url'],
             'allowed_domains' => array_values(array_unique($domains)),
             'widget_config' => null,
             'is_active' => true,
-        ]);
+        ]));
         if (! empty($validated['widget_config'])) {
             if ($error = $this->applyWidgetConfig($property, $validated['widget_config'])) {
                 $property->delete();
@@ -126,11 +127,25 @@ class PropertyController extends Controller
         $validated = $request->validate([
             'site_name' => ['sometimes', 'string', 'max:255'],
             'site_url' => ['sometimes', 'string', 'max:255'],
-            'allowed_domains' => ['sometimes', 'array'],
-            'allowed_domains.*' => ['string'],
+            'allowed_domains' => ['sometimes', 'array', 'max:20'],
+            'allowed_domains.*' => ['string', 'max:255', 'regex:/^(\*|[A-Za-z0-9.-]+)$/'],
             'widget_config' => ['sometimes', 'array'],
             'is_active' => ['sometimes', 'boolean'],
         ]);
+
+        // Security F4: switching a website off, allowing every domain ("*") and webhooks
+        // (which send customer data elsewhere) are company-admin decisions, not website-admin ones.
+        $companyAdmin = $user->isAdmin() || $user->isSuperAdmin();
+        if (! $companyAdmin) {
+            $wc = $validated['widget_config'] ?? [];
+            if (array_key_exists('is_active', $validated) || in_array('*', $validated['allowed_domains'] ?? [], true)
+                || array_key_exists('webhook_url', $wc) || array_key_exists('webhook_secret', $wc)) {
+                abort(403, 'Only company administrators can disable a website, allow every domain or change webhooks.');
+            }
+        }
+        if (isset($validated['allowed_domains'])) {
+            $validated['allowed_domains'] = array_values(array_unique(array_map(fn ($d) => strtolower(trim($d)), $validated['allowed_domains'])));
+        }
 
         $widgetConfig = $validated['widget_config'] ?? null;
         unset($validated['widget_config']);
@@ -422,6 +437,30 @@ class PropertyController extends Controller
 
         $newSecret = array_key_exists('webhook_secret', $incoming) ? trim((string) $incoming['webhook_secret']) : '';
         unset($incoming['webhook_secret'], $incoming['webhook_secret_set'], $current['webhook_secret']);
+
+        // Only known settings with safe values are stored (they are used in CSS and on public pages).
+        $allowed = ['primary_color', 'welcome_message', 'position', 'brand_name', 'attachments_enabled', 'csat_enabled',
+            'operating_hours', 'webhook_url', 'webhook_events', 'offline_notice', 'button_text', 'greeting'];
+        if (array_key_exists('operating_hours', $incoming) && ! is_array($incoming['operating_hours']) && $incoming['operating_hours'] !== null) {
+            unset($incoming['operating_hours']);
+        }
+        $incoming = array_intersect_key($incoming, array_flip($allowed));
+        if (array_key_exists('primary_color', $incoming) && ! preg_match('/^#[0-9a-fA-F]{3,8}$/', (string) $incoming['primary_color'])) {
+            return response()->json(['success' => false, 'message' => 'Brand colour must be a hex colour like #2563eb.', 'errors' => ['widget_config.primary_color' => ['Invalid colour.']]], 422);
+        }
+        if (array_key_exists('position', $incoming) && ! in_array($incoming['position'], ['left', 'right'], true)) {
+            return response()->json(['success' => false, 'message' => 'Position must be left or right.', 'errors' => ['widget_config.position' => ['Invalid position.']]], 422);
+        }
+        foreach (['welcome_message' => 1000, 'brand_name' => 100, 'offline_notice' => 500, 'button_text' => 60, 'greeting' => 1000] as $key => $max) {
+            if (array_key_exists($key, $incoming)) {
+                $incoming[$key] = $incoming[$key] === null ? null : mb_substr(\App\Support\SafeText::field((string) $incoming[$key]), 0, $max);
+            }
+        }
+        foreach (['attachments_enabled', 'csat_enabled'] as $key) {
+            if (array_key_exists($key, $incoming)) {
+                $incoming[$key] = (bool) $incoming[$key];
+            }
+        }
 
         $merged = array_merge($current, $incoming);
 

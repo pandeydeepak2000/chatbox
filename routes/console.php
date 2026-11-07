@@ -76,6 +76,33 @@ Artisan::command('chatbox:env-check', function () {
     $this->table(['Check', 'Value', 'Status'], $rows);
 })->purpose('Check that this cPanel server meets ChatBox requirements');
 
+/*
+| Security housekeeping (hourly):
+|  - uploads that were never sent in a message are deleted after 24 h (no free file hosting,
+|    no disk filling with orphan files);
+|  - documents stuck in "processing" for over an hour (e.g. the parser hit a PHP fatal error on a
+|    hostile file) are marked failed so they can be reviewed or replaced.
+*/
+Artisan::command('chatbox:maintenance', function () {
+    $orphans = \App\Models\Attachment::whereNull('conversation_id')->where('created_at', '<', now()->subDay())->limit(500)->get();
+    foreach ($orphans as $a) {
+        \Illuminate\Support\Facades\Storage::disk($a->disk ?: 'local')->delete($a->path);
+        $a->delete();
+    }
+
+    $stuck = \App\Models\KnowledgeVersion::where('status', 'processing')->where('updated_at', '<', now()->subHour())->get();
+    foreach ($stuck as $v) {
+        $v->forceFill(['status' => 'failed', 'error' => 'Processing did not finish. The file may be damaged or too complex — please upload it again or paste the text as an article.'])->save();
+        $doc = $v->document;
+        if ($doc && $doc->status === 'processing') {
+            $doc->forceFill(['status' => 'failed'])->save();
+        }
+    }
+
+    $this->info("orphan_attachments={$orphans->count()} stuck_documents={$stuck->count()}");
+})->purpose('Delete unsent uploads and fail stuck document processing');
+Schedule::command('chatbox:maintenance')->hourly()->withoutOverlapping(30);
+
 // Every minute: reminders/SLA/Telegram retries, AI fallback, and a short-lived queue worker.
 Schedule::command('chatbox:reminders')->everyMinute()->withoutOverlapping(5);
 Schedule::command('chatbox:process-ai')->everyMinute()->withoutOverlapping(5);

@@ -51,7 +51,9 @@ class DashboardTest extends TestCase
         $this->get('/dashboard')->assertRedirect('/app');
         $this->get('/login?reset_token=abc')->assertRedirect('/app?reset_token=abc');
 
-        // The old Blade dashboard stays reachable as a fallback.
+        // Off by default in production; available when explicitly enabled.
+        $this->get('/legacy-dashboard')->assertNotFound();
+        config(['chatbox.legacy_dashboard' => true]);
         $response = $this->get('/legacy-dashboard');
         $response->assertStatus(200);
         $response->assertSee('ChatBox Workspace');

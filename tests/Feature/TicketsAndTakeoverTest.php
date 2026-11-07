@@ -154,17 +154,17 @@ class TicketsAndTakeoverTest extends TestCase
         $this->actingAs($this->agentB, 'sanctum')->getJson('/api/v1/tickets')->assertJsonCount(0, 'data');
 
         // Agent restricted to the Domains website cannot see this Hosting ticket...
-        $this->agentA->properties()->sync([$this->siteA2->id]);
+        $this->agentA->setWebsiteAccess([$this->siteA2->id]);
         $this->actingAs($this->agentA->fresh(), 'sanctum')->getJson("/api/v1/tickets/{$ticket->id}")->assertNotFound();
         // ...and cannot be assigned to it.
         $this->actingAs($this->ownerA, 'sanctum')->postJson("/api/v1/tickets/{$ticket->id}/update", ['assigned_to' => $this->agentA->id])->assertStatus(422);
 
         // Unrestricted again: assign, then reassign to owner; the previous assignee keeps visibility.
-        $this->agentA->properties()->sync([]);
+        $this->agentA->setWebsiteAccess([]);
         $this->actingAs($this->ownerA, 'sanctum')->postJson("/api/v1/tickets/{$ticket->id}/update", ['assigned_to' => $this->agentA->id])->assertOk();
         $this->assertTrue(StaffNotification::where('user_id', $this->agentA->id)->where('type', 'ticket.assigned')->exists());
         $this->actingAs($this->ownerA, 'sanctum')->postJson("/api/v1/tickets/{$ticket->id}/update", ['assigned_to' => $this->ownerA->id])->assertOk();
-        $this->agentA->properties()->sync([$this->siteA2->id]); // restricted again, but was an assignee
+        $this->agentA->setWebsiteAccess([$this->siteA2->id]); // restricted again, but was an assignee
         $detail = $this->actingAs($this->agentA->fresh(), 'sanctum')->getJson("/api/v1/tickets/{$ticket->id}")->assertOk();
         $this->assertSame([false, true], collect($detail->json('data.assignments'))->pluck('current')->all());
     }

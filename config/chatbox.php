@@ -9,6 +9,14 @@ return [
     */
     'public_registration' => (bool) env('CHATBOX_PUBLIC_REGISTRATION', false),
 
+    // The old Blade dashboard (/legacy-dashboard). Off by default: the new dashboard (/app) replaces
+    // it, and every extra admin page is extra attack surface. Set true only as a temporary fallback.
+    'legacy_dashboard' => (bool) env('CHATBOX_LEGACY_DASHBOARD', false),
+
+    // Behind Cloudflare or another reverse proxy, list its IP ranges (comma separated) so rate
+    // limits see the real visitor IP. Never use "*" — then anyone could fake their IP.
+    'trusted_proxies' => env('CHATBOX_TRUSTED_PROXIES', ''),
+
     // Plan given to self-registered companies (plans are managed in the Super Admin panel).
     'default_plan' => env('CHATBOX_DEFAULT_PLAN', 'pro'),
 
@@ -23,6 +31,10 @@ return [
     'demo_property_key' => env('CHATBOX_DEMO_PROPERTY_KEY', ''),
 
     'attachments' => [
+        // Anonymous visitors: files per visitor per day and total MB per website per day.
+        'visitor_daily_files' => (int) env('CHATBOX_UPLOADS_PER_VISITOR_DAY', 20),
+        'website_daily_mb' => (int) env('CHATBOX_UPLOAD_MB_PER_WEBSITE_DAY', 300),
+
         // Sniffed MIME type => stored extension. Anything else is rejected.
         'allowed' => [
             'image/jpeg' => 'jpg',

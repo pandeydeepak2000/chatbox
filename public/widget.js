@@ -163,7 +163,7 @@
 
   // ------------------------------------------------------------------ boot
   function init() {
-    call('POST', '/init', { property_key: cfg.propertyKey, visitor_token: store.get('vtok'), current_page_url: location.href, browser: navigator.userAgent.slice(0, 90), os: (navigator.platform || '').slice(0, 90) }).then(function (r) {
+    call('POST', '/init', { property_key: cfg.propertyKey, visitor_token: store.get('vtok'), current_page_url: location.origin + location.pathname, browser: navigator.userAgent.slice(0, 90), os: (navigator.platform || '').slice(0, 90) }).then(function (r) {
       if (!r.ok) { if (r.status === 403) host.remove(); else console.warn('[ChatBox]', r.message); return; }
       var d = r.json.data;
       store.set('vtok', d.visitor.token);
@@ -297,7 +297,7 @@
 
   function upload(file) {
     var fd = new FormData();
-    fd.append('property_key', cfg.propertyKey); fd.append('visitor_token', S.visitor.token); fd.append('file', file);
+    fd.append('property_key', cfg.propertyKey); fd.append('visitor_token', S.visitor.token); fd.append('conversation_id', S.conversation ? S.conversation.id : ''); fd.append('file', file);
     S.notice = 'Uploading…'; render();
     call('POST', '/upload', fd, true).then(function (r) {
       S.notice = '';

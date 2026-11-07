@@ -39,6 +39,17 @@ class SecurityHelpersTest extends TestCase
         $this->assertFalse(OutboundUrlGuard::httpOptions($check)['allow_redirects']);
     }
 
+    public function test_ssrf_guard_blocks_ipv4_hidden_inside_ipv6(): void
+    {
+        foreach (['0:0:0:0:0:ffff:7f00:1', '0::ffff:127.0.0.1', '::ffff:169.254.169.254', '::127.0.0.1', '2002:7f00:1::',
+            '64:ff9b::7f00:1', '2001:0:4136::1', '::1', 'fe80::1', 'fd00::1', '2001:db8::1', 'ff02::1'] as $ip) {
+            $this->assertFalse(OutboundUrlGuard::isPublicIp($ip), "{$ip} must be blocked");
+        }
+        $this->assertFalse(OutboundUrlGuard::check('http://[0:0:0:0:0:ffff:7f00:1]/server-status')['ok']);
+        $this->assertTrue(OutboundUrlGuard::isPublicIp('2606:4700:4700::1111'));
+        $this->assertTrue(OutboundUrlGuard::isPublicIp('8.8.8.8'));
+    }
+
     public function test_spreadsheet_cells_are_neutralised(): void
     {
         $this->assertSame("'=1+1", Spreadsheet::cell('=1+1'));

@@ -422,16 +422,26 @@ class WidgetChatController extends Controller
             $content = $attachmentType === 'image' ? 'Sent an image attachment' : 'Sent a file attachment';
         }
 
-        $message = Message::create([
-            'conversation_id' => $conversation->id,
-            'sender_type' => 'visitor',
-            'sender_id' => null,
-            'message_type' => $attachmentType ?? 'text',
-            'content' => $content,
-            'attachment_url' => $attachmentRef,
-            'client_message_id' => $validated['client_message_id'] ?? null,
-            'is_read' => false,
-        ]);
+        try {
+            $message = Message::create([
+                'conversation_id' => $conversation->id,
+                'sender_type' => 'visitor',
+                'sender_id' => null,
+                'message_type' => $attachmentType ?? 'text',
+                'content' => $content,
+                'attachment_url' => $attachmentRef,
+                'client_message_id' => $validated['client_message_id'] ?? null,
+                'is_read' => false,
+            ]);
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            // Two identical retries arrived at the same moment: the first one won; return it.
+            $existing = Message::where('conversation_id', $conversation->id)->where('client_message_id', $validated['client_message_id'] ?? '')->first();
+            if (! $existing) {
+                throw $e;
+            }
+
+            return response()->json(['success' => true, 'data' => $existing, 'bot_reply' => null, 'duplicate' => true], 200);
+        }
 
         $this->safeBroadcast(fn () => broadcast(new MessageSent($message))->toOthers());
 
@@ -476,7 +486,8 @@ class WidgetChatController extends Controller
 
         $lang = $conversation->language ?? 'en';
         try {
-            $result = ConversationService::requestHuman($conversation, 'esc-' . $validated['idempotency_key'], 'customer_request');
+            // Key scoped to this conversation, so a reused key can never return another chat's ticket.
+            $result = ConversationService::requestHuman($conversation, 'esc-' . substr(hash('sha256', $conversation->id . '|' . $validated['idempotency_key']), 0, 48), 'customer_request');
         } catch (\Throwable $e) {
             Log::error('Widget escalation failed: ' . $e->getMessage());
 
@@ -594,6 +605,7 @@ class WidgetChatController extends Controller
         $validated = $request->validate([
             'property_key' => ['required', 'string', 'max:100'],
             'visitor_token' => ['required', 'string', 'max:100'],
+            'conversation_id' => ['required', 'string', 'max:64'],
             'file' => ['required', 'file', 'max:' . (int) config('chatbox.attachments.max_kb', 10240)],
         ]);
 
@@ -610,7 +622,11 @@ class WidgetChatController extends Controller
             return response()->json(['success' => false, 'message' => 'Access denied: Visitor is blocked.'], 403);
         }
 
-        $attachment = AttachmentService::store($request->file('file'), $property->tenant_id, $property->id, 'visitor', $visitor->id);
+        // Uploads belong to the visitor's own open chat (no free file hosting without a conversation).
+        $conversation = WidgetAccess::conversation($request, $validated['conversation_id'], $validated['visitor_token'], $property->id);
+        abort_unless($conversation, 404);
+
+        $attachment = AttachmentService::store($request->file('file'), $property->tenant_id, $property->id, 'visitor', $visitor->id, $conversation->id);
 
         return response()->json([
             'success' => true,
@@ -670,6 +686,22 @@ class WidgetChatController extends Controller
             || RateLimiter::tooManyAttempts($ipKey, (int) config('chatbox.transcripts.per_ip_per_day', 10))) {
             return response()->json(['success' => false, 'sent' => false, 'message' => 'Too many transcript requests. Please try again later.'], 429);
         }
+        // Security (browser F4 / logic F12): transcripts go only to the e-mail saved for this chat
+        // (the signed-in customer's account or the visitor's own e-mail), at most once per day per
+        // recipient, so the chat cannot be used to send branded e-mails to arbitrary people.
+        $known = array_filter([
+            $conversation->customerAccount?->email,
+            $conversation->visitor?->email,
+        ]);
+        $to = mb_strtolower(trim($validated['email']));
+        if (! in_array($to, array_map('mb_strtolower', $known), true)) {
+            return response()->json(['success' => false, 'sent' => false, 'message' => 'The transcript can only be sent to the e-mail address saved for this chat.'], 422);
+        }
+        $recipientKey = 'transcript:to:' . $property->id . ':' . hash('sha256', $to);
+        if (RateLimiter::tooManyAttempts($recipientKey, 1)) {
+            return response()->json(['success' => false, 'sent' => false, 'message' => 'A transcript was already sent to this address today.'], 429);
+        }
+        RateLimiter::hit($recipientKey, 86400);
         RateLimiter::hit($convKey, 3600);
         RateLimiter::hit($ipKey, 86400);
 
@@ -683,7 +715,7 @@ class WidgetChatController extends Controller
     private function conversationPayload(Conversation $conversation): array
     {
         $data = $conversation->only(['id', 'property_id', 'department_id', 'status', 'handler', 'rating', 'created_at', 'last_message_at', 'last_seq']);
-        $data['messages'] = $conversation->messages()->visibleToCustomer()->get();
+        $data['messages'] = $conversation->messages()->visibleToCustomer()->reorder()->orderByDesc('seq')->limit(300)->get()->sortBy('seq')->values(); // latest 300 only
         $data['open_ticket'] = Ticket::where('open_conversation_id', $conversation->id)->first()?->toCustomerArray();
         $data['ai_pending'] = $conversation->ai_pending_since !== null;
 
@@ -696,7 +728,7 @@ class WidgetChatController extends Controller
             return null;
         }
 
-        return Cache::remember("prop_pub_{$key}", 120, fn () => Property::where('public_key', $key)->where('is_active', true)->first());
+        return Property::activeByPublicKey($key);
     }
 
     private static function emailIn(string $text): ?string

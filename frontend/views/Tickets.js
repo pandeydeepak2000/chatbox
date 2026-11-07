@@ -47,7 +47,7 @@ export default function Tickets({ ctx }) {
                   <td data-label="Ref" className="nowrap"><span className="ref">{t.reference}</span></td>
                   <td data-label="Subject" className="ellipsis max-260 stack-title cell-title">{t.subject}</td>
                   <td data-label="Website">{t.property?.site_name}</td>
-                  <td data-label="Customer" className="ellipsis max-180">{t.customer_name || t.customer_email || '—'}</td>
+                  <td data-label="Customer" className="max-180"><div className="ellipsis">{t.customer_name || t.customer_email || '—'}</div>{t.customer_email && !t.customer_verified && <Badge tone="orange">Unverified e-mail</Badge>}</td>
                   <td data-label="Priority"><Badge tone={statusTone(t.priority)}>{fmt.label(t.priority)}</Badge></td>
                   <td data-label="Status"><Badge dot tone={statusTone(t.status)}>{t.status_label}</Badge></td>
                   <td data-label="Assigned">{t.assigned_to?.name || <span className="muted">Unassigned</span>}</td>

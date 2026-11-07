@@ -31,9 +31,11 @@ class AgentChatController extends Controller
     public function conversations(Request $request): JsonResponse
     {
         $user = $request->user();
+        $request->validate(['search' => ['nullable', 'string', 'max:100'], 'property_id' => ['nullable', 'string', 'max:64'], 'filter' => ['nullable', 'string', 'max:20']]);
         $filter = $request->query('filter', 'all'); // all, unassigned, mine, closed
         $propertyId = $request->query('property_id');
         $search = $request->query('search');
+        $search = $search !== null ? addcslashes($search, '%_\\') : null;
 
         $query = Conversation::with([
             'visitor',
@@ -101,19 +103,20 @@ class AgentChatController extends Controller
         $user = $request->user();
         $conversation = $this->findAuthorizedConversation($user, $id);
 
-        $conversation->load([
-            'visitor',
-            'department',
-            'assignedAgent',
-            'messages.sender',
-            'property',
-        ]);
+        $conversation->load(['visitor', 'department', 'assignedAgent', 'property']);
+        // Latest 300 messages only, so a flooded chat cannot exhaust memory when staff open it.
+        $latest = $conversation->messages()->reorder()->orderByDesc('seq')->limit(300)->with('sender')->get();
+        $conversation->setRelation('messages', $latest->sortBy('seq')->values());
 
         $openTicket = \App\Models\Ticket::where('open_conversation_id', $conversation->id)->first();
         // The visitor's lead (if any) for the side panel.
         $lead = \App\Models\Lead::visibleTo($user)->where('leads.visitor_id', $conversation->visitor_id)->first();
         $data = $conversation->toArray();
         $data['open_ticket'] = $openTicket ? ['id' => $openTicket->id, 'reference' => $openTicket->reference, 'status' => $openTicket->status] : null;
+        // Security S17: show staff whether the customer's e-mail was confirmed with an e-mailed code.
+        $data['customer_verified'] = $conversation->customer_account_id
+            ? (bool) \App\Models\CustomerAccount::whereKey($conversation->customer_account_id)->value('email_verified_at')
+            : false;
         $data['lead'] = $lead ? ['id' => $lead->id, 'reference' => $lead->reference, 'status' => $lead->status, 'status_label' => \App\Models\Lead::STATUSES[$lead->status] ?? $lead->status] : null;
 
         return response()->json([
@@ -399,6 +402,9 @@ class AgentChatController extends Controller
                 $q->where('tenant_id', $user->tenant_id);
             });
         }
+        if (($restricted = $user->restrictedPropertyIds()) !== null) {
+            $query->whereIn('property_id', $restricted); // agents limited to some websites
+        }
         if (! empty($propertyId)) {
             $query->where('property_id', $propertyId);
         }
@@ -496,7 +502,9 @@ class AgentChatController extends Controller
     public function leads(Request $request): JsonResponse
     {
         $user = $request->user();
+        $request->validate(['search' => ['nullable', 'string', 'max:100'], 'status' => ['nullable', 'string', 'max:30'], 'property_id' => ['nullable', 'string', 'max:64']]);
         $search = $request->query('search');
+        $search = $search !== null ? addcslashes($search, '%_\\') : null;
         $status = $request->query('status');
         $propertyId = $request->query('property_id');
 
@@ -508,6 +516,9 @@ class AgentChatController extends Controller
             $query->whereHas('property', function ($q) use ($user) {
                 $q->where('tenant_id', $user->tenant_id);
             });
+        }
+        if (($restricted = $user->restrictedPropertyIds()) !== null) {
+            $query->whereIn('property_id', $restricted); // agents limited to some websites
         }
 
         if (! empty($propertyId)) {
@@ -588,6 +599,9 @@ class AgentChatController extends Controller
                 $q->where('tenant_id', $user->tenant_id);
             });
         }
+        if (($restricted = $user->restrictedPropertyIds()) !== null) {
+            $query->whereIn('property_id', $restricted); // agents limited to some websites
+        }
 
         $visitor = $query->firstOrFail();
 
@@ -640,6 +654,9 @@ class AgentChatController extends Controller
                 $q->where('tenant_id', $user->tenant_id);
             });
         }
+        if (($restricted = $user->restrictedPropertyIds()) !== null) {
+            $query->whereIn('property_id', $restricted); // agents limited to some websites
+        }
 
         $visitor = $query->firstOrFail();
         Audit::record('lead.deleted', $visitor, ['property_id' => $visitor->property_id], tenantId: $visitor->property?->tenant_id);
@@ -660,6 +677,9 @@ class AgentChatController extends Controller
         $query = Visitor::where('id', $visitorId);
         if (! $user->isSuperAdmin()) {
             $query->whereHas('property', fn($q) => $q->where('tenant_id', $user->tenant_id));
+        }
+        if (($restricted = $user->restrictedPropertyIds()) !== null) {
+            $query->whereIn('property_id', $restricted); // agents limited to some websites
         }
         $visitor = $query->firstOrFail();
         $visitor->is_blocked = ! $visitor->is_blocked;
@@ -779,6 +799,9 @@ class AgentChatController extends Controller
             $query->whereHas('property', function ($q) use ($user) {
                 $q->where('tenant_id', $user->tenant_id);
             });
+        }
+        if (($restricted = $user->restrictedPropertyIds()) !== null) {
+            $query->whereIn('property_id', $restricted); // agents limited to some websites
         }
 
         Audit::record('crm.leads.exported', null, ['format' => 'csv', 'rows' => (clone $query)->count()]);

@@ -33,7 +33,8 @@ Route::get('/login', $toNewDashboard)->name('login');
 Route::get('/register', $toNewDashboard)->name('register');
 Route::get('/workspace', $toNewDashboard);
 Route::get('/dashboard', $toNewDashboard);
-Route::get('/legacy-dashboard', fn () => view('dashboard'));
+// Off unless CHATBOX_LEGACY_DASHBOARD=true (security: less admin attack surface in production).
+Route::get('/legacy-dashboard', fn () => config('chatbox.legacy_dashboard') ? view('dashboard') : abort(404));
 
 Route::get('/demo', function () {
     $property = Property::where('is_active', true)->first();

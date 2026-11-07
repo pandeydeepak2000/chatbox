@@ -13,6 +13,10 @@
     RewriteCond %{HTTP:x-xsrf-token} .
     RewriteRule .* - [E=HTTP_X_XSRF_TOKEN:%{HTTP:X-XSRF-Token}]
 
+    # Dashboard pages always go through Laravel, so its security headers (CSP, anti-framing) apply.
+    RewriteRule ^app/?$ index.php [L]
+    RewriteRule ^app/(index|404|_not-found)\.html$ index.php [L]
+
     # Redirect Trailing Slashes If Not A Folder...
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_URI} (.+)/$
@@ -22,4 +26,13 @@
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
+</IfModule>
+
+# Security headers as a fallback for files Apache serves directly (built dashboard assets, widget.js).
+# Laravel sets these (and a Content-Security-Policy) on every page it serves; "setifempty" never
+# overrides them.
+<IfModule mod_headers.c>
+    Header always setifempty X-Content-Type-Options "nosniff"
+    Header always setifempty Referrer-Policy "strict-origin-when-cross-origin"
+    Header always setifempty X-Frame-Options "SAMEORIGIN"
 </IfModule>

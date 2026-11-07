@@ -10,7 +10,7 @@ class AiBudget extends Model
 
     protected function casts(): array
     {
-        return ['monthly_cap_usd' => 'float', 'daily_cap_usd' => 'float', 'per_visitor_daily_messages' => 'integer', 'alert_threshold_pct' => 'integer'];
+        return ['monthly_cap_usd' => 'float', 'daily_cap_usd' => 'float', 'per_visitor_daily_messages' => 'integer', 'alert_threshold_pct' => 'integer', 'reserved_usd' => 'float', 'reserved_until' => 'datetime'];
     }
 
     public static function forTenant(string $tenantId): self

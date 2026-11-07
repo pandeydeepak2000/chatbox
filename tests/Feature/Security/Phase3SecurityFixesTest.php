@@ -161,9 +161,14 @@ class Phase3SecurityFixesTest extends TestCase
     public function test_attachment_upload_is_private_and_served_only_by_signed_link(): void
     {
         $conv = $this->conversationFor($this->propA);
+        // Uploads need the visitor's own conversation (no anonymous file hosting).
+        $this->postJson('/api/v1/widget/upload', [
+            'property_key' => $this->propA->public_key, 'visitor_token' => 'vtok_abcdef01', 'file' => UploadedFile::fake()->image('x.png'),
+        ])->assertStatus(422);
         $res = $this->postJson('/api/v1/widget/upload', [
             'property_key' => $this->propA->public_key,
             'visitor_token' => 'vtok_abcdef01',
+            'conversation_id' => $conv->id,
             'file' => UploadedFile::fake()->image('screen.png'),
         ])->assertOk();
 
@@ -189,10 +194,10 @@ class Phase3SecurityFixesTest extends TestCase
 
     public function test_html_disguised_as_image_and_external_attachment_urls_are_rejected(): void
     {
-        $this->conversationFor($this->propA);
+        $first = $this->conversationFor($this->propA);
         $html = UploadedFile::fake()->createWithContent('photo.png', '<html><script>alert(1)</script></html>');
         $this->postJson('/api/v1/widget/upload', [
-            'property_key' => $this->propA->public_key, 'visitor_token' => 'vtok_abcdef01', 'file' => $html,
+            'property_key' => $this->propA->public_key, 'visitor_token' => 'vtok_abcdef01', 'conversation_id' => $first->id, 'file' => $html,
         ])->assertStatus(422);
 
         $conv = Conversation::first();
@@ -207,12 +212,16 @@ class Phase3SecurityFixesTest extends TestCase
 
     public function test_visitor_cannot_attach_another_visitors_upload(): void
     {
-        $this->conversationFor($this->propA, 'vtok_owner001');
+        $own = $this->conversationFor($this->propA, 'vtok_owner001');
         $up = $this->postJson('/api/v1/widget/upload', [
-            'property_key' => $this->propA->public_key, 'visitor_token' => 'vtok_owner001', 'file' => UploadedFile::fake()->image('a.png'),
+            'property_key' => $this->propA->public_key, 'visitor_token' => 'vtok_owner001', 'conversation_id' => $own->id, 'file' => UploadedFile::fake()->image('a.png'),
         ])->assertOk();
 
         $other = $this->conversationFor($this->propA, 'vtok_attack01');
+        // An attacker cannot upload into someone else's conversation either.
+        $this->postJson('/api/v1/widget/upload', [
+            'property_key' => $this->propA->public_key, 'visitor_token' => 'vtok_attack01', 'conversation_id' => $own->id, 'file' => UploadedFile::fake()->image('b.png'),
+        ])->assertNotFound();
         $this->postJson('/api/v1/widget/messages', [
             'property_key' => $this->propA->public_key,
             'visitor_token' => 'vtok_attack01',
@@ -337,16 +346,19 @@ class Phase3SecurityFixesTest extends TestCase
 
     // ---------------------------------------------------------------- H10 transcripts
 
-    public function test_transcript_requests_are_rate_limited_and_failures_are_reported(): void
+    public function test_transcripts_only_go_to_the_chat_email_and_are_rate_limited(): void
     {
         Mail::fake();
         $conv = $this->conversationFor($this->propA);
-        $payload = ['property_key' => $this->propA->public_key, 'visitor_token' => 'vtok_abcdef01', 'email' => 'me@example.com'];
+        $conv->visitor->update(['email' => 'me@example.com']);
+        $url = "/api/v1/widget/conversations/{$conv->id}/transcript";
+        $base = ['property_key' => $this->propA->public_key, 'visitor_token' => 'vtok_abcdef01'];
 
-        for ($i = 0; $i < 3; $i++) {
-            $this->postJson("/api/v1/widget/conversations/{$conv->id}/transcript", $payload)->assertOk()->assertJsonPath('sent', true);
-        }
-        $this->postJson("/api/v1/widget/conversations/{$conv->id}/transcript", $payload)->assertStatus(429);
+        // Not a relay: arbitrary recipients are refused.
+        $this->postJson($url, $base + ['email' => 'victim@corp.test'])->assertStatus(422);
+        $this->postJson($url, $base + ['email' => 'ME@example.com'])->assertOk()->assertJsonPath('sent', true);
+        // Once per recipient per day.
+        $this->postJson($url, $base + ['email' => 'me@example.com'])->assertStatus(429);
     }
 
     // ---------------------------------------------------------------- M1 / M3 export + audit

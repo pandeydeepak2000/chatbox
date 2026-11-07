@@ -132,12 +132,41 @@ class DocumentExtractor
 
     private static function guardZip(\ZipArchive $zip): void
     {
+        $unsafe = new \RuntimeException('This file expands to an unsafe size and was rejected.');
+        if ($zip->numFiles > 2000) {
+            throw $unsafe;
+        }
         $total = 0;
         for ($i = 0; $i < $zip->numFiles; $i++) {
             $stat = $zip->statIndex($i);
             $total += (int) ($stat['size'] ?? 0);
             if ($total > self::MAX_UNCOMPRESSED || ($stat['comp_size'] ?? 1) > 0 && ($stat['size'] ?? 0) / max(1, $stat['comp_size']) > 200) {
-                throw new \RuntimeException('This file expands to an unsafe size and was rejected.');
+                throw $unsafe;
+            }
+        }
+
+        // Security (files F3): the sizes above are written by whoever made the file and can lie.
+        // Decompress every entry once, counting the real bytes, and stop at the limit — so a forged
+        // archive is rejected here instead of exhausting memory later inside the XLSX/DOCX parser.
+        $real = 0;
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $stream = $zip->getStream((string) $zip->getNameIndex($i));
+            if ($stream === false) {
+                continue;
+            }
+            try {
+                while (! feof($stream)) {
+                    $chunk = fread($stream, 65536);
+                    if ($chunk === false) {
+                        break;
+                    }
+                    $real += strlen($chunk);
+                    if ($real > self::MAX_UNCOMPRESSED) {
+                        throw $unsafe;
+                    }
+                }
+            } finally {
+                fclose($stream);
             }
         }
     }

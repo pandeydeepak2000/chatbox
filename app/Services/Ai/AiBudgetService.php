@@ -31,6 +31,11 @@ class AiBudgetService
     /** @return string|null reason the AI may not be used now, or null if allowed */
     public static function blockReason(AiSetting $s, ?string $visitorId): ?string
     {
+        return self::blockReasonFor($s, $visitorId, null);
+    }
+
+    private static function blockReasonFor(AiSetting $s, ?string $visitorId, ?AiBudget $lockedBudget): ?string
+    {
         if (! $s->enabled) {
             return 'disabled';
         }
@@ -41,17 +46,18 @@ class AiBudgetService
         if (! $price) {
             return 'no_price';
         }
-        $budget = AiBudget::forTenant($s->tenant_id);
+        $budget = $lockedBudget ?? AiBudget::forTenant($s->tenant_id);
         $estimate = self::cost($price, self::EST_INPUT_TOKENS, (int) $s->max_output_tokens);
 
         $planCap = \App\Services\PlanLimits::limits($s->tenant_id)['limits']['ai_monthly_usd'] ?? null;
         $monthlyCap = $planCap === null ? $budget->monthly_cap_usd : min($budget->monthly_cap_usd, (float) $planCap);
-        if (self::spent($s->tenant_id, 'm:' . now()->format('Y-m')) + $estimate > $monthlyCap) {
+        $reserved = self::activeReservation($budget);
+        if (self::spent($s->tenant_id, 'm:' . now()->format('Y-m')) + $reserved + $estimate > $monthlyCap) {
             self::limitReached($budget, 'month');
 
             return 'budget_month';
         }
-        if (self::spent($s->tenant_id, 'd:' . now()->format('Y-m-d')) + $estimate > $budget->daily_cap_usd) {
+        if (self::spent($s->tenant_id, 'd:' . now()->format('Y-m-d')) + $reserved + $estimate > $budget->daily_cap_usd) {
             self::limitReached($budget, 'day');
 
             return 'budget_day';
@@ -70,6 +76,50 @@ class AiBudgetService
         }
 
         return null;
+    }
+
+    /** Money reserved by AI calls that are still running (expired reservations count as zero). */
+    private static function activeReservation(AiBudget $budget): float
+    {
+        return $budget->reserved_until && $budget->reserved_until->isFuture() ? (float) $budget->reserved_usd : 0.0;
+    }
+
+    /**
+     * Security S12: reserve the estimated cost of one AI call atomically (row lock). Returns the
+     * reserved amount, or null when the call would exceed a cap — then no paid call is made.
+     */
+    public static function reserve(AiSetting $s, ?string $visitorId): ?float
+    {
+        $price = self::price($s);
+        if (! $price) {
+            return null;
+        }
+        $estimate = self::cost($price, self::EST_INPUT_TOKENS, (int) $s->max_output_tokens);
+        AiBudget::forTenant($s->tenant_id); // make sure the row exists before locking it
+
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($s, $visitorId, $estimate) {
+            $budget = AiBudget::where('tenant_id', $s->tenant_id)->lockForUpdate()->first();
+            if (! $budget || self::blockReasonFor($s, $visitorId, $budget) !== null) {
+                return null;
+            }
+            $budget->forceFill([
+                'reserved_usd' => self::activeReservation($budget) + $estimate,
+                'reserved_until' => now()->addMinutes(5),
+            ])->save();
+
+            return $estimate;
+        });
+    }
+
+    /** Give back a reservation once the real cost has been recorded (or the call failed). */
+    public static function release(string $tenantId, float $amount): void
+    {
+        \Illuminate\Support\Facades\DB::transaction(function () use ($tenantId, $amount) {
+            $budget = AiBudget::where('tenant_id', $tenantId)->lockForUpdate()->first();
+            if ($budget) {
+                $budget->forceFill(['reserved_usd' => max(0, self::activeReservation($budget) - $amount)])->save();
+            }
+        });
     }
 
     public static function record(AiSetting $s, LlmResult $r, string $outcome, int $latencyMs, ?string $propertyId, ?string $conversationId): AiUsageLog

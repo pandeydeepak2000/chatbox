@@ -71,7 +71,7 @@ class TranscriptService
                 $rawUrl = $msg->attachment_url;
                 if (str_starts_with($msg->getRawOriginal('attachment_url') ?? '', \App\Models\Message::ATTACHMENT_PREFIX)) {
                     // Links in e-mails live longer than in-app links.
-                    $rawUrl = \App\Models\Attachment::signedUrlFor(substr($msg->getRawOriginal('attachment_url'), strlen(\App\Models\Message::ATTACHMENT_PREFIX)), 60 * 24 * 30);
+                    $rawUrl = \App\Models\Attachment::signedUrlFor(substr($msg->getRawOriginal('attachment_url'), strlen(\App\Models\Message::ATTACHMENT_PREFIX)), 60 * 24 * 7); // 7-day links in e-mails (security: shorter-lived bearer links)
                 }
                 $scheme = strtolower((string) parse_url($rawUrl, PHP_URL_SCHEME));
                 if (in_array($scheme, ['http', 'https'], true)) {

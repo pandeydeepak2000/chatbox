@@ -19,8 +19,21 @@ use Illuminate\Validation\ValidationException;
  */
 class AttachmentService
 {
-    public static function store(UploadedFile $file, string $tenantId, ?string $propertyId, string $uploaderType, string $uploaderId): Attachment
+    public static function store(UploadedFile $file, string $tenantId, ?string $propertyId, string $uploaderType, string $uploaderId, ?string $conversationId = null): Attachment
     {
+        // Security (files F2): anonymous visitors cannot fill the disk. Per visitor and per website
+        // per day limits; files never sent in a message are deleted by chatbox:maintenance.
+        if ($uploaderType === 'visitor') {
+            $today = Attachment::where('uploader_type', 'visitor')->where('created_at', '>=', now()->subDay());
+            if ((clone $today)->where('uploader_id', $uploaderId)->count() >= (int) config('chatbox.attachments.visitor_daily_files', 20)) {
+                throw ValidationException::withMessages(['file' => ['You have reached today’s upload limit. Please describe the problem in a message instead.']]);
+            }
+            $quota = (int) config('chatbox.attachments.website_daily_mb', 300) * 1024 * 1024;
+            if ($propertyId && (int) (clone $today)->where('property_id', $propertyId)->sum('size') + (int) $file->getSize() > $quota) {
+                throw ValidationException::withMessages(['file' => ['Uploads are temporarily unavailable. Please try again tomorrow.']]);
+            }
+        }
+
         $allowed = config('chatbox.attachments.allowed', []);
         $mime = self::sniff($file->getRealPath());
 
@@ -38,6 +51,7 @@ class AttachmentService
         return Attachment::create([
             'tenant_id' => $tenantId,
             'property_id' => $propertyId,
+            'conversation_id' => $conversationId,
             'uploader_type' => $uploaderType,
             'uploader_id' => $uploaderId,
             'disk' => 'local',

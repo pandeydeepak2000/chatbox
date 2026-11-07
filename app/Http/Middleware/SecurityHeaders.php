@@ -47,7 +47,7 @@ class SecurityHeaders
         $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
         $response->headers->set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
         if ($request->isSecure()) {
-            $response->headers->set('Strict-Transport-Security', 'max-age=31536000');
+            $response->headers->set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
         }
 
         if ($corsOrigin !== null) {
@@ -63,7 +63,54 @@ class SecurityHeaders
             $response->headers->set('X-Frame-Options', 'SAMEORIGIN');
         }
 
+        // Content-Security-Policy for the staff dashboards (security review C-F1/F2): no framing by
+        // other sites, scripts/styles/fonts/images only from this server, and API calls only to this
+        // server — so even a future XSS bug cannot load outside code or send a token elsewhere.
+        if ($this->isDashboardPage($request) && str_contains((string) $response->headers->get('Content-Type'), 'text/html')) {
+            $legacy = $request->is('legacy-dashboard') || $request->is('login') || $request->is('dashboard') || $request->is('register') || $request->is('workspace');
+            // New dashboard: only its own inline bootstrap scripts are allowed, by hash (recorded at
+            // build time in public/app/csp-hashes.json). The legacy page (off by default) still needs
+            // 'unsafe-inline' because of its inline onclick handlers.
+            $scriptSrc = "script-src 'self' 'unsafe-inline'";
+            if (! $legacy && ($hashes = $this->dashboardScriptHashes()) !== []) {
+                $scriptSrc = "script-src 'self' " . implode(' ', $hashes);
+            }
+            $response->headers->set('Content-Security-Policy', implode('; ', [
+                "default-src 'self'",
+                $scriptSrc,
+                "style-src 'self' 'unsafe-inline'" . ($legacy ? ' https://fonts.googleapis.com' : ''),
+                "font-src 'self' data:" . ($legacy ? ' https://fonts.gstatic.com' : ''),
+                "img-src 'self' data: blob:",
+                "connect-src 'self'",
+                "object-src 'none'",
+                "base-uri 'self'",
+                "form-action 'self'",
+                "frame-ancestors 'self'",
+            ]));
+        }
+
         return $response;
+    }
+
+    /** @return list<string> e.g. ["'sha256-…'"]; empty when the build file is missing or invalid. */
+    private function dashboardScriptHashes(): array
+    {
+        static $hashes = null;
+        if ($hashes === null) {
+            $file = public_path('app/csp-hashes.json');
+            $decoded = is_file($file) ? json_decode((string) file_get_contents($file), true) : null;
+            $hashes = is_array($decoded)
+                ? array_values(array_filter($decoded, fn ($h) => is_string($h) && preg_match("/^'sha256-[A-Za-z0-9+\\/=]{44}'$/", $h)))
+                : [];
+        }
+
+        return $hashes;
+    }
+
+    private function isDashboardPage(Request $request): bool
+    {
+        return $request->is('app') || $request->is('app/*') || $request->is('*/admin') || $request->is('*/admin/*')
+            || $request->is('legacy-dashboard') || $request->is('login') || $request->is('dashboard') || $request->is('register') || $request->is('workspace');
     }
 
     private function isPublicEmbed(Request $request): bool

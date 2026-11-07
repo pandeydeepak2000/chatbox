@@ -77,6 +77,23 @@ class Property extends Model
     }
 
     /** widget_config as safe for anonymous website visitors. */
+    /**
+     * Widget lookup by public key (security F7 + F5): the website must be active, its company must
+     * not be suspended, and the key must match exactly (MySQL compares case-insensitively).
+     */
+    public static function activeByPublicKey(string $key): ?self
+    {
+        if ($key === '' || strlen($key) > 100) {
+            return null;
+        }
+        $property = \Illuminate\Support\Facades\Cache::remember("prop_pub_{$key}", 120, fn () => self::where('public_key', $key)
+            ->where('is_active', true)
+            ->whereHas('tenant', fn ($t) => $t->where('status', 'active'))
+            ->first());
+
+        return $property && hash_equals((string) $property->public_key, $key) ? $property : null;
+    }
+
     public function publicWidgetConfig(): array
     {
         $config = $this->widget_config ?? [];

@@ -48,6 +48,11 @@ class Notifier
 
     public static function humanRequested(Conversation $conversation): void
     {
+        // Security (logic F7): at most one "wants a human" alert per conversation every 10 minutes,
+        // so repeated button presses cannot flood staff dashboards and the Telegram group.
+        if (! \Illuminate\Support\Facades\Cache::add('notify:human:' . $conversation->id, 1, 600)) {
+            return;
+        }
         $conversation->loadMissing(['property', 'visitor']);
         $who = $conversation->visitor?->name ?: 'A visitor';
         self::toUsers(self::staffFor($conversation->property), 'human.requested', 'Customer wants a human', "{$who} on {$conversation->property?->site_name} asked to talk to a person.", ['conversation_id' => $conversation->id]);

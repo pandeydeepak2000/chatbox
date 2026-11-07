@@ -126,6 +126,9 @@ class WorkspaceController extends Controller
         if (isset($v['is_active']) && ! $user->isAdmin()) {
             abort(403, 'Only company administrators can enable or disable websites.');
         }
+        if (in_array('*', $v['allowed_domains'] ?? [], true) && ! $user->isAdmin()) {
+            abort(403, 'Only company administrators can allow the widget on every domain.');
+        }
         foreach (['identity_mode', 'site_name', 'site_url', 'is_active'] as $f) {
             if (array_key_exists($f, $v)) {
                 $property->{$f} = $v[$f];
@@ -180,6 +183,9 @@ class WorkspaceController extends Controller
         }
         if ($v['role']) {
             DB::table('property_user')->updateOrInsert(['property_id' => $property->id, 'user_id' => $member->id], ['role' => $v['role'], 'updated_at' => now(), 'created_at' => now()]);
+            // Assigning someone to a website limits them to their assigned websites (as before);
+            // removing the last one later leaves them with no website, never with all (security F1).
+            $member->forceFill(['website_access' => 'selected'])->save();
         } else {
             DB::table('property_user')->where('property_id', $property->id)->where('user_id', $member->id)->delete();
         }

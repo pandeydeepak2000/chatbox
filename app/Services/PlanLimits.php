@@ -40,6 +40,32 @@ class PlanLimits
     }
 
     /** Throws a validation error when adding one more item would exceed the plan. */
+    /**
+     * Security (plan-limit race): check the limit and create the item while holding a short
+     * per-company lock, so two parallel requests cannot both pass the check and exceed the plan.
+     *
+     * @template T
+     * @param  \Closure(): T  $create
+     * @return T
+     */
+    public static function withCapacity(?string $tenantId, string $key, \Closure $create): mixed
+    {
+        if (! $tenantId) {
+            return $create();
+        }
+        $lock = \Illuminate\Support\Facades\Cache::lock("plan-add:{$tenantId}:{$key}", 20);
+        if (! $lock->block(10)) {
+            throw ValidationException::withMessages(['plan' => ['Another change is being saved. Please try again.']]);
+        }
+        try {
+            self::assertCanAdd($tenantId, $key);
+
+            return $create();
+        } finally {
+            $lock->release();
+        }
+    }
+
     public static function assertCanAdd(?string $tenantId, string $key): void
     {
         if (! $tenantId) {

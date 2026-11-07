@@ -91,15 +91,52 @@ class OutboundUrlGuard
             return true;
         }
 
-        // IPv6: block IPv4-mapped, unique-local, link-local, multicast, documentation.
-        $lower = strtolower($ip);
-        foreach (['::ffff:', 'fc', 'fd', 'fe8', 'fe9', 'fea', 'feb', 'ff', '2001:db8', '64:ff9b'] as $prefix) {
-            if (str_starts_with($lower, $prefix)) {
+        // IPv6, compared on the binary address (text prefixes can be bypassed, e.g.
+        // 0:0:0:0:0:ffff:7f00:1 = 127.0.0.1). Blocked: every range that embeds or tunnels IPv4
+        // (mapped, compatible, NAT64, 6to4, Teredo) and unique-local, link-local, multicast, docs.
+        $bin = @inet_pton($ip);
+        if ($bin === false || strlen($bin) !== 16) {
+            return false;
+        }
+        $blockedV6 = [
+            '::/96',           // IPv4-compatible, ::, ::1
+            '::ffff:0:0/96',   // IPv4-mapped
+            '64:ff9b::/96',    // NAT64
+            '64:ff9b:1::/48',  // local NAT64
+            '100::/64',        // discard
+            '2001::/32',       // Teredo
+            '2001:db8::/32',   // documentation
+            '2002::/16',       // 6to4
+            'fc00::/7',        // unique local
+            'fe80::/10',       // link local
+            'fec0::/10',       // site local (deprecated)
+            'ff00::/8',        // multicast
+        ];
+        foreach ($blockedV6 as $cidr) {
+            if (self::inCidr6($bin, $cidr)) {
                 return false;
             }
         }
 
         return true;
+    }
+
+    private static function inCidr6(string $bin, string $cidr): bool
+    {
+        [$net, $bits] = explode('/', $cidr);
+        $netBin = inet_pton($net);
+        $bits = (int) $bits;
+        $bytes = intdiv($bits, 8);
+        if (strncmp($bin, $netBin, $bytes) !== 0) {
+            return false;
+        }
+        $rest = $bits % 8;
+        if ($rest === 0) {
+            return true;
+        }
+        $mask = (0xFF << (8 - $rest)) & 0xFF;
+
+        return (ord($bin[$bytes]) & $mask) === (ord($netBin[$bytes]) & $mask);
     }
 
     private static function resolve(string $host): array

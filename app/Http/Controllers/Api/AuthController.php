@@ -144,12 +144,15 @@ class AuthController extends Controller
             'website_slug' => ['nullable', 'string', 'max:60'],
         ]);
 
-        // Dual-key brute force protection (Email + IP combination)
+        // Brute-force protection: e-mail + IP (5 tries / 15 min) and, against attacks spread over
+        // many IPs, per account (20 tries / hour).
         $throttleKey = Str::transliterate(Str::lower($credentials['email']) . '|' . $request->ip());
+        $accountKey = 'login-acct:' . hash('sha256', Str::lower($credentials['email']));
 
-        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
-            $seconds = RateLimiter::availableIn($throttleKey);
-            Log::warning("Security Alert: Brute force login lockout triggered for {$credentials['email']} from IP: {$request->ip()}");
+        if (RateLimiter::tooManyAttempts($throttleKey, 5) || RateLimiter::tooManyAttempts($accountKey, 20)) {
+            $seconds = max(RateLimiter::availableIn($throttleKey), RateLimiter::availableIn($accountKey));
+            // Context array instead of string interpolation: no log-line injection (CR/LF in e-mail).
+            Log::warning('Security alert: login lockout triggered', ['email' => Str::limit(preg_replace('/[\x00-\x1F\x7F]/', '', $credentials['email']), 120), 'ip' => $request->ip()]);
             return response()->json([
                 'success' => false,
                 'message' => "Too many failed login attempts. For security, your account has been temporarily locked. Please try again in {$seconds} seconds.",
@@ -157,9 +160,14 @@ class AuthController extends Controller
         }
 
         $user = User::with(['tenant'])->where('email', $credentials['email'])->first();
+        // Always run one bcrypt check so the response time does not reveal whether the account exists.
+        static $dummyHash = null;
+        $dummyHash ??= Hash::make('chatbox-timing-equaliser');
+        $passwordOk = Hash::check($credentials['password'], $user?->password ?? $dummyHash) && $user !== null;
 
-        if (! $user || ! Hash::check($credentials['password'], $user->password)) {
+        if (! $passwordOk) {
             RateLimiter::hit($throttleKey, 900); // 15-minute lockout after 5 strikes
+            RateLimiter::hit($accountKey, 3600);
             Audit::record('auth.login_failed', $user, ['email' => mb_strtolower($credentials['email'])], tenantId: $user?->tenant_id);
             throw ValidationException::withMessages([
                 'email' => ['The provided credentials do not match our records.'],
@@ -181,6 +189,7 @@ class AuthController extends Controller
 
         // Clear brute force strikes on successful login
         RateLimiter::clear($throttleKey);
+        RateLimiter::clear($accountKey);
 
         // Check if tenant is active (unless super admin)
         if ($user->tenant && ! $user->tenant->isActive()) {
@@ -314,7 +323,6 @@ class AuthController extends Controller
         if (! $user->tenant_id) {
             return response()->json(['success' => false, 'message' => 'Platform administrators must create agents from a company workspace.'], 422);
         }
-        \App\Services\PlanLimits::assertCanAdd($user->tenant_id, 'staff');
         if ($error = $this->rejectForeignDepartments($validated['department_ids'] ?? [], $user->tenant_id)) {
             return $error;
         }
@@ -322,7 +330,7 @@ class AuthController extends Controller
             return $error;
         }
 
-        $agent = DB::transaction(function () use ($validated, $user) {
+        $agent = \App\Services\PlanLimits::withCapacity($user->tenant_id, 'staff', fn () => DB::transaction(function () use ($validated, $user) {
             $newAgent = User::create([
                 'tenant_id' => $user->tenant_id,
                 'name' => $validated['name'],
@@ -338,9 +346,11 @@ class AuthController extends Controller
             if (! empty($validated['property_ids'])) {
                 $newAgent->properties()->sync($validated['property_ids']);
             }
+            // Explicit access mode (security F1): no websites ticked = all company websites.
+            $newAgent->setWebsiteAccess($validated['property_ids'] ?? []);
 
             return $newAgent;
-        });
+        }));
         Audit::record('agent.created', $agent, ['email' => $agent->email, 'department_ids' => $validated['department_ids'] ?? [], 'property_ids' => $validated['property_ids'] ?? []]);
 
         return response()->json([
@@ -388,6 +398,9 @@ class AuthController extends Controller
         }
 
         $agent = $query->firstOrFail();
+        if ($denied = $this->denyStaffChange($user, $agent)) {
+            return $denied;
+        }
 
         $validated = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
@@ -424,7 +437,7 @@ class AuthController extends Controller
             $agent->departments()->sync($departmentIds);
         }
         if ($propertyIds !== null) {
-            $agent->properties()->sync($propertyIds);
+            $agent->setWebsiteAccess($propertyIds);
         }
         if ($passwordChanged && $agent->id !== $user->id) {
             $agent->tokens()->delete();
@@ -458,6 +471,12 @@ class AuthController extends Controller
         }
 
         $agent = $query->firstOrFail();
+        if ($denied = $this->denyStaffChange($user, $agent)) {
+            return $denied;
+        }
+        if ($agent->tenant_id && $agent->tenant?->owner_user_id === $agent->id) {
+            return response()->json(['success' => false, 'message' => 'The company owner cannot be removed.'], 403);
+        }
         Audit::record('agent.deleted', $agent, ['email' => $agent->email]);
         $agent->tokens()->delete();
         $agent->delete();
@@ -585,6 +604,25 @@ class AuthController extends Controller
     /**
      * Update any user's Name, Email, Password, or Role (Super Admin only).
      */
+    /**
+     * Security F3: company admins manage agents. Only the company owner (or a platform super admin)
+     * may change or remove other administrators, and super admins are never reachable here.
+     */
+    private function denyStaffChange(User $actor, User $target): ?JsonResponse
+    {
+        if ($actor->isSuperAdmin() || $actor->id === $target->id) {
+            return null;
+        }
+        if ($target->isSuperAdmin()) {
+            return response()->json(['success' => false, 'message' => 'Forbidden.'], 403);
+        }
+        if ($target->isAdmin() && ! $actor->isCompanyOwner()) {
+            return response()->json(['success' => false, 'message' => 'Only the company owner can change other administrators.'], 403);
+        }
+
+        return null;
+    }
+
     public function platformUpdateUser(Request $request, string $id): JsonResponse
     {
         $currentUser = $request->user();
@@ -601,6 +639,15 @@ class AuthController extends Controller
             'role' => ['sometimes', 'string', 'in:super_admin,admin,agent'],
             'tenant_id' => ['nullable', 'string', 'exists:tenants,id'],
         ]);
+
+        $role = $validated['role'] ?? $targetUser->role;
+        $tenantId = array_key_exists('tenant_id', $validated) ? $validated['tenant_id'] : $targetUser->tenant_id;
+        if ($role === 'super_admin' && $tenantId !== null) {
+            return response()->json(['success' => false, 'message' => 'A super admin cannot belong to a company.'], 422);
+        }
+        if ($role !== 'super_admin' && $tenantId === null) {
+            return response()->json(['success' => false, 'message' => 'Company staff must belong to a company.'], 422);
+        }
 
         $passwordChanged = ! empty($validated['password']);
         if ($passwordChanged) {
@@ -686,7 +733,17 @@ class AuthController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email,' . $user->id],
             'password' => ['nullable', 'string', 'min:8'],
+            'current_password' => ['nullable', 'string'],
         ]);
+
+        // Security F9: changing the sign-in e-mail or password needs the current password, so a
+        // stolen session token cannot be turned into a permanent account takeover.
+        $emailChanged = mb_strtolower($validated['email']) !== mb_strtolower($user->email);
+        if (($emailChanged || ! empty($validated['password'])) && ! Hash::check((string) ($validated['current_password'] ?? ''), $user->password)) {
+            throw ValidationException::withMessages(['current_password' => ['Enter your current password to change your e-mail or password.']]);
+        }
+        unset($validated['current_password']);
+        $oldEmail = $user->email;
 
         $passwordChanged = ! empty($validated['password']);
         if ($passwordChanged) {
@@ -696,6 +753,16 @@ class AuthController extends Controller
         }
 
         $user->update($validated);
+        if ($emailChanged) {
+            Audit::record('auth.email_changed', $user, ['from' => $oldEmail]);
+            try {
+                \Illuminate\Support\Facades\Mail::raw("Hello,\n\nThe sign-in e-mail of your ChatBox account was changed to {$user->email}.\nIf you did not do this, contact your company administrator immediately.", function ($m) use ($oldEmail) {
+                    $m->to($oldEmail)->subject('Your ChatBox sign-in e-mail was changed');
+                });
+            } catch (\Throwable $e) {
+                Log::warning('Could not send e-mail-change notice', ['user' => $user->id]);
+            }
+        }
         if ($passwordChanged) {
             // Sign out every other session; keep the one making this request.
             $currentTokenId = $user->currentAccessToken()?->id;

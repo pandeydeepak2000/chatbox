@@ -48,6 +48,10 @@ class PlatformController extends Controller
         if ($v['status'] === 'suspended') {
             DB::table('personal_access_tokens')->whereIn('tokenable_id', $tenant->users()->pluck('id'))->delete();
         }
+        // Widgets of a suspended company stop working immediately (no stale cached lookup).
+        foreach (\App\Models\Property::where('tenant_id', $tenant->id)->pluck('public_key') as $key) {
+            \Illuminate\Support\Facades\Cache::forget("prop_pub_{$key}");
+        }
         Audit::record('platform.tenant_status', $tenant, $v);
 
         return response()->json(['success' => true]);

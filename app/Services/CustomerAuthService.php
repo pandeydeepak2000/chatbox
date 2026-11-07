@@ -89,7 +89,9 @@ class CustomerAuthService
             return [null, 'invalid'];
         }
 
-        if ($account->isLocked()) {
+        // Security (logic F8): the attempt is counted BEFORE the PIN is checked, under a row lock,
+        // so parallel guesses cannot exceed 5 per lock window.
+        if (! self::reserveAttempt($account)) {
             return [null, 'locked'];
         }
 
@@ -104,28 +106,54 @@ class CustomerAuthService
         return [$account, 'ok'];
     }
 
+    /** Count one attempt (in flight or failed). False when the account is locked or the limit is reached. */
+    private static function reserveAttempt(CustomerAccount $account): bool
+    {
+        return DB::transaction(function () use ($account) {
+            $a = CustomerAccount::whereKey($account->id)->lockForUpdate()->first();
+            if ($a->isLocked()) {
+                return false;
+            }
+            if ($a->failed_attempts >= 5) {
+                self::applyLock($a);
+
+                return false;
+            }
+            $a->failed_attempts++;
+            $a->save();
+
+            return true;
+        });
+    }
+
+    /** After a wrong PIN: lock the account once five attempts have been used. */
     private static function registerFailure(CustomerAccount $account): void
     {
         DB::transaction(function () use ($account) {
             $a = CustomerAccount::whereKey($account->id)->lockForUpdate()->first();
-            $a->failed_attempts++;
-            if ($a->failed_attempts >= 5) {
-                $minutes = self::LOCK_STEPS_MINUTES[min($a->lockout_level, count(self::LOCK_STEPS_MINUTES) - 1)];
-                $a->locked_until = now()->addMinutes($minutes);
-                $a->lockout_level = min($a->lockout_level + 1, 10);
-                $a->failed_attempts = 0;
-                Audit::record('customer.locked', $a, ['minutes' => $minutes], tenantId: $a->tenant_id);
-                self::mailSafely($a->email, 'Security notice: several failed PIN attempts', implode("\n", [
-                    'Hello,',
-                    '',
-                    "Several incorrect Support PIN attempts were made for your support account on {$a->property?->site_name}.",
-                    "For your security the account is locked for {$minutes} minutes.",
-                    '',
-                    'If this was not you, use "Forgot PIN" in the chat window to set a new PIN.',
-                ]));
+            if ($a->failed_attempts >= 5 && ! $a->isLocked()) {
+                self::applyLock($a);
             }
-            $a->save();
         });
+    }
+
+    /** Lock for 15 min, then 1 h, then 24 h; tell the owner by e-mail. Caller holds the row lock. */
+    private static function applyLock(CustomerAccount $a): void
+    {
+        $minutes = self::LOCK_STEPS_MINUTES[min($a->lockout_level, count(self::LOCK_STEPS_MINUTES) - 1)];
+        $a->locked_until = now()->addMinutes($minutes);
+        $a->lockout_level = min($a->lockout_level + 1, 10);
+        $a->failed_attempts = 0;
+        $a->save();
+        Audit::record('customer.locked', $a, ['minutes' => $minutes], tenantId: $a->tenant_id);
+        self::mailSafely($a->email, 'Security notice: several failed PIN attempts', implode("\n", [
+            'Hello,',
+            '',
+            "Several incorrect Support PIN attempts were made for your support account on {$a->property?->site_name}.",
+            "For your security the account is locked for {$minutes} minutes.",
+            '',
+            'If this was not you, use "Forgot PIN" in the chat window to set a new PIN.',
+        ]));
     }
 
     /** Issue a session token. Only the hash is stored; the plain token is returned once. */
@@ -162,6 +190,11 @@ class CustomerAuthService
             ->first();
 
         if (! $session || ! $session->account || $session->session_version !== $session->account->session_version) {
+            return null;
+        }
+        // Absolute limit (security C-F7): even an active session must sign in again after 90 days,
+        // so a token copied from a customer's browser cannot be used forever.
+        if ($session->created_at && $session->created_at->lt(now()->subDays(90))) {
             return null;
         }
 

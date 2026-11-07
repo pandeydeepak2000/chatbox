@@ -96,7 +96,7 @@ class CustomerAuthController extends Controller
         }
         $account = CustomerAuthService::findAccount($property, $v['email']);
 
-        return response()->json(['success' => true, 'data' => ['exists' => (bool) $account, 'locked' => (bool) $account?->isLocked()]]);
+        return response()->json(['success' => true, 'data' => ['exists' => (bool) $account]]);
     }
 
     public function login(Request $request): JsonResponse
@@ -255,7 +255,7 @@ class CustomerAuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Not found'], 404);
         }
 
-        $messages = $conversation->messages()->visibleToCustomer()->get();
+        $messages = $conversation->messages()->visibleToCustomer()->reorder()->orderByDesc('seq')->limit(300)->get()->sortBy('seq')->values(); // latest 300 only
 
         return response()->json(['success' => true, 'data' => [
             'conversation' => $this->conversationSummary($conversation),
@@ -340,7 +340,7 @@ class CustomerAuthController extends Controller
             return null;
         }
 
-        return Cache::remember("prop_pub_{$key}", 120, fn () => Property::where('public_key', $key)->where('is_active', true)->first());
+        return Property::activeByPublicKey($key);
     }
 
     private function visitor(Property $property, ?string $token): ?Visitor

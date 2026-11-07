@@ -154,7 +154,7 @@ class LeadsManagementTest extends TestCase
         $domainLead = $this->makeLead($this->siteA2, ['name' => 'Domain Lead']);
         $hostingLead = Lead::where('name', 'Hosting Lead')->first();
 
-        $this->agentA->properties()->sync([$this->siteA2->id]);
+        $this->agentA->setWebsiteAccess([$this->siteA2->id]);
 
         $agentList = $this->actingAs($this->agentA, 'sanctum')->getJson('/api/v1/leads')->assertOk();
         $this->assertSame(['Domain Lead'], collect($agentList->json('data'))->pluck('name')->all());
@@ -177,12 +177,12 @@ class LeadsManagementTest extends TestCase
     public function test_assignment_requires_staff_of_same_company_with_access_to_the_website(): void
     {
         $lead = $this->makeLead($this->siteA1);
-        $this->agentA->properties()->sync([$this->siteA2->id]);
+        $this->agentA->setWebsiteAccess([$this->siteA2->id]);
 
         $this->actingAs($this->ownerA, 'sanctum')->patchJson("/api/v1/leads/{$lead->id}", ['assigned_to' => $this->agentB->id])->assertStatus(422);
         $this->actingAs($this->ownerA, 'sanctum')->patchJson("/api/v1/leads/{$lead->id}", ['assigned_to' => $this->agentA->id])->assertStatus(422);
 
-        $this->agentA->properties()->sync([]);
+        $this->agentA->setWebsiteAccess([]);
         $res = $this->actingAs($this->ownerA, 'sanctum')->patchJson("/api/v1/leads/{$lead->id}", ['assigned_to' => $this->agentA->id, 'status' => 'follow_up'])->assertOk();
         $this->assertSame('Agent A', $res->json('data.assigned_to.name'));
         $this->assertSame('Follow-up', $res->json('data.status_label'));

@@ -110,7 +110,7 @@ function Conversation({ id, ctx, onBack, onChanged }) {
         <span className="avatar">{initials(c.visitor?.name || c.visitor?.email || 'Visitor')}</span>
         <div className="grow">
           <strong>{c.visitor?.name || c.visitor?.email || 'Website visitor'}</strong>
-          <div className="meta">{c.visitor?.email || 'No e-mail provided'} · {c.property?.site_name} <Badge dot tone={statusTone(c.status)}>{fmt.label(c.status)}</Badge> <Badge tone={statusTone(c.handler)}>{c.handler === 'human' ? 'Handled by team' : 'Handled by assistant'}</Badge></div>
+          <div className="meta">{c.visitor?.email || 'No e-mail provided'}{c.visitor?.email && !c.customer_verified && <Badge tone="orange">Unverified</Badge>} · {c.property?.site_name} <Badge dot tone={statusTone(c.status)}>{fmt.label(c.status)}</Badge> <Badge tone={statusTone(c.handler)}>{c.handler === 'human' ? 'Handled by team' : 'Handled by assistant'}</Badge></div>
         </div>
         <div className="row gap-sm wrap">
           {c.handler === 'ai'

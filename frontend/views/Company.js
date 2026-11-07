@@ -11,7 +11,7 @@ export default function Company({ ctx }) {
   const c = useApi('/company');
   const agents = useApi('/agents');
   const [f, setF] = useState(null);
-  const [profile, setProfile] = useState({ name: ctx.me.user.name, email: ctx.me.user.email, password: '' });
+  const [profile, setProfile] = useState({ name: ctx.me.user.name, email: ctx.me.user.email, password: '', current_password: '' });
   const [run, busy] = useAction();
   const d = c.data?.data;
 
@@ -78,7 +78,8 @@ function ProfileCard({ profile, setProfile, run, busy }) {
       <Field label="Name"><input className="input" value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></Field>
       <Field label="E-mail"><input className="input" type="email" value={profile.email} onChange={(e) => setProfile({ ...profile, email: e.target.value })} /></Field>
       <Field label="New password" hint="Leave empty to keep your current password. Other devices are signed out when you change it."><input className="input" type="password" autoComplete="new-password" value={profile.password} onChange={(e) => setProfile({ ...profile, password: e.target.value })} /></Field>
-      <div className="row end"><Button disabled={busy} onClick={() => run(async () => { await api('/auth/profile', { method: 'PUT', body: { ...profile, password: profile.password || undefined } }); setProfile({ ...profile, password: '' }); }, 'Profile saved')}><Save size={15} />Save profile</Button></div>
+      <Field label="Current password" hint="Required to change your e-mail or password."><input className="input" type="password" autoComplete="current-password" value={profile.current_password} onChange={(e) => setProfile({ ...profile, current_password: e.target.value })} /></Field>
+      <div className="row end"><Button disabled={busy} onClick={() => run(async () => { await api('/auth/profile', { method: 'PUT', body: { ...profile, password: profile.password || undefined, current_password: profile.current_password || undefined } }); setProfile({ ...profile, password: '', current_password: '' }); }, 'Profile saved')}><Save size={15} />Save profile</Button></div>
     </section>
   );
 }

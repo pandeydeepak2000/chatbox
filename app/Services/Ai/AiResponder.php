@@ -49,7 +49,32 @@ class AiResponder
         '/\b(i|we)\s+(have|\'ve)\s+(renewed|suspended|unsuspended|cancelled|canceled|reset|changed|updated|fixed|restored|deleted|activated)\b/i',
         '/\b(your|the)\s+(server|service|website|hosting|domain)\s+is\s+(up|down|online|working|fixed|restored|active)\s+now\b/i',
         '/\b(issue|problem)\s+(is|has\s+been)\s+(resolved|fixed)\b/i',
+        // Roman Hindi / Hinglish (security logic F6): "refund ho gaya", "payment mil gaya", "renew kar diya" ...
+        '/\b(refund|payment|paisa|paise|invoice|renew(al)?|domain|server|hosting)\b.{0,40}\b(ho\s+gaya|ho\s+gayi|ho\s+chuka|mil\s+gaya|kar\s+diya|kar\s+di|process\s+ho)\b/iu',
+        // Devanagari Hindi: रिफंड / भुगतान / पेमेंट ... हो गया / कर दिया / मिल गया
+        '/(रिफंड|भुगतान|पेमेंट|इनवॉइस|रिन्यू|सर्वर|डोमेन).{0,40}(हो\s*गया|हो\s*गई|कर\s*दिया|मिल\s*गया|प्रोसेस)/u',
     ];
+
+    /** The assistant must never ask customers for secrets (phishing via prompt injection). */
+    private const CREDENTIAL_REQUESTS = [
+        // "share / send / tell / give / enter / confirm (me|us) your password|OTP|PIN|CVV|card number"
+        '/\b(share|send|tell|give|provide|enter|type|confirm|reply\s+with|verify)\b.{0,25}\b(password|passcode|otp|one[-\s]time\s+(code|password)|pin|cvv|cvc|card\s+(number|details)|bank\s+(account|details)|upi\s+pin|login\s+details|credentials)\b/i',
+        // Roman Hindi: "OTP bhejiye", "password batao", "card number share karo"
+        '/\b(password|otp|pin|cvv|card\s+number|upi\s+pin)\b.{0,25}\b(bhejo|bhejiye|bhejein|batao|bataiye|bataye|dijiye|do|share\s+kar(o|ein|iye)?|likhiye)\b/iu',
+        // Devanagari: पासवर्ड/ओटीपी/पिन/कार्ड नंबर ... बताएं/भेजें/दें/शेयर करें
+        '/(पासवर्ड|ओटीपी|पिन|कार्ड\s*नंबर|सीवीवी).{0,25}(बताएं|बताइए|बताओ|भेजें|भेजिए|भेजो|दें|दीजिए|शेयर)/u',
+    ];
+
+    private static function unsafeText(string $text): bool
+    {
+        foreach (array_merge(self::FORBIDDEN_CLAIMS, self::CREDENTIAL_REQUESTS) as $pattern) {
+            if (preg_match($pattern, $text)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public function run(string $conversationId, string $messageId): void
     {
@@ -69,6 +94,47 @@ class AiResponder
 
         $settings = AiSetting::forTenant($conversation->property->tenant_id);
         $lang = $conversation->language ?? 'en';
+
+        // Security (logic F4/F5): check the budget again right before the paid call, and allow only a
+        // few AI calls per company at the same time (protects the budget and cPanel's PHP workers).
+        if (AiBudgetService::blockReason($settings, $conversation->visitor_id) !== null) {
+            $conversation->forceFill(['ai_pending_since' => null])->save();
+            SupportBot::requestHuman($conversation, $message, $lang, 'ai_escalation');
+
+            return;
+        }
+        $slot = null;
+        foreach (range(1, 3) as $n) {
+            $lock = \Illuminate\Support\Facades\Cache::lock("ai-slot:{$conversation->property->tenant_id}:{$n}", 90);
+            if ($lock->get()) {
+                $slot = $lock;
+                break;
+            }
+        }
+        if (! $slot) {
+            return; // all slots busy: ai_pending_since stays set, the cron fallback retries shortly
+        }
+        try {
+            // Reserve the estimated cost atomically; if that would pass a cap, hand over instead.
+            $reserved = AiBudgetService::reserve($settings, $conversation->visitor_id);
+            if ($reserved === null) {
+                $conversation->forceFill(['ai_pending_since' => null])->save();
+                SupportBot::requestHuman($conversation, $message, $lang, 'ai_escalation');
+
+                return;
+            }
+            try {
+                $this->answer($conversation, $message, $settings, $lang);
+            } finally {
+                AiBudgetService::release($settings->tenant_id, $reserved);
+            }
+        } finally {
+            $slot->release();
+        }
+    }
+
+    private function answer(Conversation $conversation, Message $message, AiSetting $settings, string $lang): void
+    {
 
         $history = $this->history($conversation, $message);
         $visitorTexts = collect($history)->where('role', 'user')->pluck('content')->take(-2)->implode("\n");
@@ -117,8 +183,12 @@ class AiResponder
         $reply = trim((string) ($d['reply'] ?? ''));
         $action = $d['action'] ?? 'escalate';
 
+        // Every model text is checked, clarifying questions included (they were sent unchecked before).
+        if ($reply !== '' && self::unsafeText($reply)) {
+            return ['outcome' => 'escalate'];
+        }
         if ($action === 'clarify' && $reply !== '' && $conversation->clarifications_asked < 1) {
-            return ['outcome' => 'clarify', 'reply' => mb_substr($reply, 0, 1500)];
+            return ['outcome' => 'clarify', 'reply' => mb_substr($reply, 0, 400)];
         }
         if ($action !== 'answer' || $reply === '') {
             return ['outcome' => 'escalate'];
@@ -129,12 +199,6 @@ class AiResponder
         if (! $cited || (float) ($d['confidence'] ?? 0) < 0.5) {
             return ['outcome' => 'escalate']; // an answer that is not grounded in approved knowledge is never sent
         }
-        foreach (self::FORBIDDEN_CLAIMS as $pattern) {
-            if (preg_match($pattern, $reply)) {
-                return ['outcome' => 'escalate'];
-            }
-        }
-
         return ['outcome' => 'answered', 'reply' => mb_substr($reply, 0, 3000), 'cited' => $cited];
     }
 

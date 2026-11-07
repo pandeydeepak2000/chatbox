@@ -39,7 +39,7 @@ class WorkspaceAndPlatformTest extends TestCase
 
     public function test_website_admin_url_only_lets_staff_of_that_website_in(): void
     {
-        $this->agentA->properties()->sync([$this->siteA2->id]);
+        $this->agentA->setWebsiteAccess([$this->siteA2->id]);
         $login = fn ($email, $pw, $slug) => $this->postJson('/api/v1/auth/login', ['email' => $email, 'password' => $pw, 'website_slug' => $slug]);
 
         $denied = $login('agent@a.test', 'agent-pass-1', $this->siteA->slug)->assertStatus(422);
@@ -116,7 +116,7 @@ class WorkspaceAndPlatformTest extends TestCase
         $this->assertSame(1, $a->json('data.conversations'));
         $this->assertSame(1, $a->json('data.tickets_open'));
 
-        $this->agentA->properties()->sync([$this->siteA2->id]);
+        $this->agentA->setWebsiteAccess([$this->siteA2->id]);
         $restricted = $this->actingAs($this->agentA->fresh(), 'sanctum')->getJson('/api/v1/analytics?days=7')->assertOk();
         $this->assertSame(0, $restricted->json('data.conversations'));
     }

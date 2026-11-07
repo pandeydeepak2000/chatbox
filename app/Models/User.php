@@ -118,21 +118,37 @@ class User extends Authenticatable
 
     /**
      * Website restriction for this user:
-     *  - null  => no restriction inside their company (owners/admins, or agents with no website assignment)
-     *  - array => only these property ids (agents assigned to specific websites)
+     *  - null  => no restriction inside their company (owners/admins, or agents with website_access = all)
+     *  - array => only these property ids (agents with website_access = selected). An EMPTY array
+     *             means no website at all: removing an agent's last website never widens access.
      */
     public function restrictedPropertyIds(): ?array
     {
         if ($this->isSuperAdmin() || $this->isAdmin()) {
             return null;
         }
+        if (($this->website_access ?? 'all') !== 'selected') {
+            return null;
+        }
 
         if (! array_key_exists('restricted_property_ids', $this->runtimeCache)) {
-            $ids = $this->properties()->where('properties.tenant_id', $this->tenant_id)->pluck('properties.id')->all();
-            $this->runtimeCache['restricted_property_ids'] = $ids === [] ? null : $ids;
+            $this->runtimeCache['restricted_property_ids'] = $this->properties()
+                ->where('properties.tenant_id', $this->tenant_id)->pluck('properties.id')->all();
         }
 
         return $this->runtimeCache['restricted_property_ids'];
+    }
+
+    /**
+     * Set which websites an agent may access. Empty or null = every company website; otherwise only
+     * the listed ones (removing all of them later means no access — it never widens access).
+     */
+    public function setWebsiteAccess(?array $propertyIds): void
+    {
+        $propertyIds = array_values(array_unique($propertyIds ?? []));
+        $this->properties()->sync($propertyIds);
+        $this->forceFill(['website_access' => $propertyIds === [] ? 'all' : 'selected'])->save();
+        unset($this->runtimeCache['restricted_property_ids']);
     }
 
     /** True when the user may work with data of this website. */
