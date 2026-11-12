@@ -519,9 +519,8 @@
         h('div', { class: 'field' }, msg),
         h('button', { class: 'btn block', type: 'submit', disabled: S.sending }, S.sending ? 'Starting…' : 'Start chat')));
       if (!S.customer && S.identityMode !== 'guest_only') {
-        nodes.push(h('div', { class: 'card' }, h('div', { class: 'muted', text: 'Already chatted with us, or want your chats saved across devices?' }),
-          h('button', { class: 'link', onclick: function () { S.screen = 'signin'; S.error = ''; render(); } }, 'Continue Previous Support'), ' · ',
-          h('button', { class: 'link', onclick: function () { S.screen = 'signup'; S.error = ''; render(); } }, 'Save my chats')));
+        nodes.push(h('div', { class: 'card' }, h('div', { class: 'muted', text: 'Have a Support PIN to view your previous chats and tickets?' }),
+          h('button', { class: 'link', onclick: function () { S.screen = 'signin'; S.error = ''; render(); } }, 'Sign in with e-mail & PIN')));
       }
     }
     if (S.faqs.length) {
@@ -594,8 +593,7 @@
       h('div', { class: 'foot' }, alerts(), csat,
         h('div', { class: 'tools' }, human,
           attachOn ? h('button', { class: 'btn ghost sm', onclick: function () { file.click(); }, 'aria-label': 'Attach a file' }, 'Attach') : null, file,
-          h('button', { class: 'link', onclick: function () { S.conversation = null; S.messages = []; S.screen = 'start'; S.notice = ''; render(); } }, 'New chat'),
-          !S.customer && S.identityMode !== 'guest_only' ? h('button', { class: 'link', onclick: function () { S.screen = 'identify'; S.idStep = 'email'; render(); } }, 'Save my chats') : null),
+          h('button', { class: 'link', onclick: function () { S.conversation = null; S.messages = []; S.screen = 'start'; S.notice = ''; render(); } }, 'New chat')),
         h('div', { class: 'row' }, input, h('button', { class: 'btn', onclick: submit, 'aria-label': 'Send' }, 'Send'))));
   }
 
