@@ -43,6 +43,25 @@ class AntiBotShield
             }
         }
 
+        // 1b. Block empty or automated script User-Agents on public widget POST endpoints
+        if (! app()->runningUnitTests() && $request->is('api/v1/widget/*') && $request->isMethod('POST')) {
+            $scriptBots = ['curl/', 'python-requests', 'python-urllib', 'go-http-client', 'scrapy', 'libwww-perl', 'wget/', 'httpie/'];
+            $isScript = trim($userAgent) === '';
+            foreach ($scriptBots as $sig) {
+                if (str_contains($userAgent, $sig)) {
+                    $isScript = true;
+                    break;
+                }
+            }
+            if ($isScript) {
+                Log::warning("AntiBotShield: Automated script blocked on widget POST from IP: {$request->ip()}");
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Automated requests are not permitted.',
+                ], 403);
+            }
+        }
+
         // 2. Honeypot Trap Detection (Form autofill bots)
         $honeypotKeys = ['_bot_trap', 'website_hp', 'contact_hp', 'company_fax_hp'];
         foreach ($honeypotKeys as $key) {

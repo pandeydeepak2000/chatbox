@@ -31,6 +31,7 @@
   var S = {
     open: false, tab: 'chat', screen: 'loading', property: null, visitor: null, customer: null,
     conversation: null, messages: [], lastSeq: 0, departments: [], faqs: [], identityMode: 'guest_only',
+    sessionTimeoutMinutes: 30,
     tickets: [], conversations: [], aiPending: false, handler: 'ai', openTicket: null, status: null,
     unread: 0, lastActivity: Date.now(), pollTimer: null, sending: false, error: '', notice: '', forgotEmail: '',
     idStep: 'email', idEmail: '', guestChosen: false,
@@ -161,6 +162,32 @@
     } catch (e) { /* audio not allowed */ }
   }
 
+  function touchActivity() {
+    S.lastActivity = Date.now();
+    store.set('last_act', String(S.lastActivity));
+  }
+
+  function broadcastTabSync() {
+    store.set('sync', String(Date.now()));
+  }
+
+  function checkSessionTimeout() {
+    if (!S.sessionTimeoutMinutes || S.sessionTimeoutMinutes <= 0 || !S.customer) return false;
+    var last = Number(store.get('last_act') || 0);
+    if (!last) { touchActivity(); return false; }
+    if (Date.now() - last > S.sessionTimeoutMinutes * 60000) {
+      store.set('customer', null);
+      S.customer = null; S.tickets = []; S.conversations = [];
+      S.conversation = null; S.messages = [];
+      S.idStep = 'email'; S.screen = S.identityMode !== 'guest_only' ? 'identify' : 'start';
+      S.notice = 'Your chat session timed out due to inactivity.';
+      clearTimeout(S.pollTimer);
+      render();
+      return true;
+    }
+    return false;
+  }
+
   // ------------------------------------------------------------------ boot
   function init() {
     call('POST', '/init', { property_key: cfg.propertyKey, visitor_token: store.get('vtok'), current_page_url: location.origin + location.pathname, browser: navigator.userAgent.slice(0, 90), os: (navigator.platform || '').slice(0, 90) }).then(function (r) {
@@ -169,15 +196,19 @@
       store.set('vtok', d.visitor.token);
       S.visitor = d.visitor; S.property = d.property; S.customer = d.customer;
       S.identityMode = d.property.identity_mode || 'guest_only';
+      S.sessionTimeoutMinutes = Number(d.property.session_timeout_minutes ?? 30);
       S.departments = d.departments || []; S.faqs = d.faqs || [];
       var wc = d.property.widget_config || {};
       applyStyles(/^#[0-9a-f]{3,8}$/i.test(wc.primary_color || '') ? wc.primary_color : '#2563eb', wc.position);
       if (d.conversation) loadConversation(d.conversation);
+      else { S.conversation = null; S.messages = []; }
       call('GET', '/status?' + qs({ property_key: cfg.propertyKey })).then(function (s) { if (s.ok) S.status = s.json; render(); });
-      if (S.customer) refreshCustomer();
-      S.screen = S.conversation ? 'chat' : 'start';
-      render();
-      schedulePoll();
+      if (!checkSessionTimeout()) {
+        if (S.customer) { touchActivity(); refreshCustomer(); }
+        S.screen = S.conversation ? 'chat' : 'start';
+        render();
+        schedulePoll();
+      }
     });
   }
 
@@ -229,26 +260,38 @@
       schedulePoll();
     });
   }
-  document.addEventListener('visibilitychange', function () { if (!document.hidden && S.conversation) poll(); });
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) {
+      if (!checkSessionTimeout() && S.conversation) poll();
+    }
+  });
+
+  // Cross-tab session sync: when the visitor signs in or chats in one tab, enable it in all open tabs.
+  window.addEventListener('storage', function (e) {
+    if (!e || !e.key || e.key.indexOf('chatbox_') !== 0 || e.key.indexOf('_' + KEY) === -1) return;
+    if (e.key === 'chatbox_customer_' + KEY || e.key === 'chatbox_sync_' + KEY) {
+      init();
+    }
+  });
 
   // ------------------------------------------------------------------ actions
   function toggle(open) {
     S.open = open;
-    if (open) { S.unread = 0; S.lastActivity = Date.now(); }
+    if (open) { S.unread = 0; touchActivity(); checkSessionTimeout(); }
     render();
     if (open && S.conversation) poll();
   }
 
   function startChat(text, extra) {
     S.sending = true; S.error = ''; render();
-    call('POST', '/start', Object.assign({ property_key: cfg.propertyKey, visitor_token: S.visitor.token, initial_message: text, client_message_id: uid() }, extra || {})).then(function (r) {
+    call('POST', '/start', Object.assign({ property_key: cfg.propertyKey, visitor_token: S.visitor.token, initial_message: text, client_message_id: uid(), _bot_trap: '' }, extra || {})).then(function (r) {
       S.sending = false;
       if (!r.ok) {
         if (r.json && r.json.code === 'customer_unauthenticated') S.screen = 'signin';
         S.error = r.message; render(); return;
       }
       loadConversation(r.json.data.conversation);
-      S.screen = 'chat'; S.tab = 'chat'; S.lastActivity = Date.now();
+      S.screen = 'chat'; S.tab = 'chat'; touchActivity(); broadcastTabSync();
       render(); poll();
     });
   }
@@ -256,8 +299,8 @@
   function sendMessage(text, attachmentId) {
     var cid = uid();
     var temp = { id: 'tmp-' + cid, client_message_id: cid, sender_type: 'visitor', content: text || 'Sending attachment…', pending: true, created_at: new Date().toISOString() };
-    S.messages.push(temp); S.lastActivity = Date.now(); render();
-    var body = { property_key: cfg.propertyKey, visitor_token: S.visitor.token, conversation_id: S.conversation.id, content: text || null, attachment_id: attachmentId || null, client_message_id: cid };
+    S.messages.push(temp); touchActivity(); render();
+    var body = { property_key: cfg.propertyKey, visitor_token: S.visitor.token, conversation_id: S.conversation.id, content: text || null, attachment_id: attachmentId || null, client_message_id: cid, _bot_trap: '' };
     var attempt = function (n) {
       call('POST', '/messages', body).then(function (r) {
         if (r.ok) {
@@ -320,6 +363,7 @@
       }
       if (kind === 'forgot') { S.forgotEmail = form.email; S.notice = r.json.message; S.screen = 'reset'; render(); return; }
       store.set('customer', r.json.data.token);
+      touchActivity(); broadcastTabSync();
       S.customer = r.json.data.customer; S.tickets = r.json.data.tickets || []; S.conversations = r.json.data.conversations || [];
       S.notice = kind === 'reset' ? r.json.message : '';
       var open = S.conversations.filter(function (c) { return c.status !== 'closed'; })[0];
@@ -338,7 +382,8 @@
 
   function logout() {
     call('POST', '/customer/logout', {}).then(function () {
-      store.set('customer', null); S.customer = null; S.tickets = []; S.conversations = [];
+      store.set('customer', null); store.set('last_act', null); broadcastTabSync();
+      S.customer = null; S.tickets = []; S.conversations = [];
       S.conversation = null; S.messages = []; S.screen = 'start'; S.idStep = 'email'; S.idEmail = ''; render();
     });
   }

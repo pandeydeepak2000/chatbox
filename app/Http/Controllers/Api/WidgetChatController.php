@@ -117,6 +117,7 @@ class WidgetChatController extends Controller
                     'id' => $property->id,
                     'site_name' => $property->site_name,
                     'identity_mode' => $property->identity_mode ?? 'guest_only',
+                    'session_timeout_minutes' => (int) ($property->tenant?->settings['session_timeout_minutes'] ?? 30),
                     'widget_config' => $property->publicWidgetConfig(),
                 ],
                 'customer' => $customer ? ['id' => $customer->id, 'email' => $customer->email, 'email_verified' => $customer->isVerified()] : null,
@@ -401,6 +402,18 @@ class WidgetChatController extends Controller
         if (! empty($validated['client_message_id'])
             && ($existing = Message::where('conversation_id', $conversation->id)->where('client_message_id', $validated['client_message_id'])->first())) {
             return response()->json(['success' => true, 'data' => $existing, 'bot_reply' => null, 'duplicate' => true], 200);
+        }
+
+        // Anti-spam flood guard: reject identical repeated messages sent rapidly in 15 seconds.
+        if ($content !== '') {
+            $recentSame = Message::where('conversation_id', $conversation->id)
+                ->where('sender_type', 'visitor')
+                ->where('content', $content)
+                ->where('created_at', '>=', now()->subSeconds(15))
+                ->count();
+            if ($recentSame >= 3) {
+                return response()->json(['success' => false, 'message' => 'Please wait a moment before sending the same message repeatedly.'], 429);
+            }
         }
 
         [$attachmentRef, $attachmentType] = AttachmentService::resolveForMessage(

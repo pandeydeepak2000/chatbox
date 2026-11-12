@@ -15,7 +15,7 @@ export default function Company({ ctx }) {
   const [run, busy] = useAction();
   const d = c.data?.data;
 
-  if (d && !f) setF({ name: d.name, timezone: d.timezone, ticket_prefix: d.ticket_prefix, working_hours: d.working_hours, sales_followup_user_id: d.sales_followup_user_id || '' });
+  if (d && !f) setF({ name: d.name, timezone: d.timezone, ticket_prefix: d.ticket_prefix, working_hours: d.working_hours, sales_followup_user_id: d.sales_followup_user_id || '', session_timeout_minutes: d.session_timeout_minutes ?? 30 });
   if (ctx.perms.is_super_admin && !ctx.me.user.tenant_id) return <><PageHead title="Company settings" /><p className="muted">Platform super admins are not part of a company. Use the Super Admin page.</p><ProfileCard profile={profile} setProfile={setProfile} run={run} busy={busy} /></>;
   if (c.error) return <ErrorBox error={c.error} onRetry={c.reload} />;
   if (!d || !f) return <Loading />;
@@ -44,9 +44,14 @@ export default function Company({ ctx }) {
               <label key={n} className="chip"><input type="checkbox" checked={wh.days.includes(n)} onChange={() => setF({ ...f, working_hours: { ...wh, days: wh.days.includes(n) ? wh.days.filter((x) => x !== n) : [...wh.days, n].sort() } })} /> {l}</label>
             ))}
           </div>
-          <Field label="Sales follow-up owner" hint="Receives quotation reminders (+10 min, +30 min, +2 h) and new sales enquiry alerts.">
-            <Select value={f.sales_followup_user_id} onChange={(v) => setF({ ...f, sales_followup_user_id: v })} placeholder="Not set" options={(agents.data?.data || []).map((a) => ({ value: a.id, label: a.name }))} />
-          </Field>
+          <div className="grid-2">
+            <Field label="Sales follow-up owner" hint="Receives quotation reminders (+10 min, +30 min, +2 h) and new sales enquiry alerts.">
+              <Select value={f.sales_followup_user_id} onChange={(v) => setF({ ...f, sales_followup_user_id: v })} placeholder="Not set" options={(agents.data?.data || []).map((a) => ({ value: a.id, label: a.name }))} />
+            </Field>
+            <Field label="Chat session timeout (minutes)" hint="Idle customer PIN sessions expire after this time (0 = never).">
+              <input className="input" type="number" min={0} max={480} value={f.session_timeout_minutes} onChange={(e) => setF({ ...f, session_timeout_minutes: Number(e.target.value) || 0 })} />
+            </Field>
+          </div>
           {d.can_edit && <div className="row end"><Button variant="primary" disabled={busy} onClick={() => run(async () => {
             const r = await api('/company', { method: 'POST', body: { ...f, sales_followup_user_id: f.sales_followup_user_id || null, working_hours: { start: wh.start, end: wh.end, days: wh.days } } });
             c.setData(r);

@@ -53,6 +53,7 @@ class WorkspaceController extends Controller
             'owner_user_id' => $tenant->owner_user_id,
             'working_hours' => array_merge(BusinessHours::DEFAULT, $settings['working_hours'] ?? []),
             'sales_followup_user_id' => $settings['sales_followup_user_id'] ?? null,
+            'session_timeout_minutes' => (int) ($settings['session_timeout_minutes'] ?? 30),
             'subscription' => PlanLimits::limits($tenant->id),
             'usage' => PlanLimits::usage($tenant->id),
             'can_edit' => $user->isAdmin(),
@@ -73,6 +74,7 @@ class WorkspaceController extends Controller
             'working_hours.days' => ['required', 'array', 'min:1'],
             'working_hours.days.*' => ['integer', 'between:1,7'],
             'sales_followup_user_id' => ['nullable', 'string'],
+            'session_timeout_minutes' => ['nullable', 'integer', 'min:0', 'max:480'],
         ], ['ticket_prefix.regex' => 'Use 2–6 capital letters, e.g. AMB.']);
 
         if (! empty($v['sales_followup_user_id']) && ! User::where('id', $v['sales_followup_user_id'])->where('tenant_id', $tenant->id)->exists()) {
@@ -87,6 +89,9 @@ class WorkspaceController extends Controller
             'days' => array_values(array_unique(array_map('intval', $v['working_hours']['days']))),
         ];
         $settings['sales_followup_user_id'] = $v['sales_followup_user_id'] ?? null;
+        if (array_key_exists('session_timeout_minutes', $v)) {
+            $settings['session_timeout_minutes'] = (int) ($v['session_timeout_minutes'] ?? 30);
+        }
         $tenant->forceFill(['name' => $v['name'], 'timezone' => $v['timezone'], 'ticket_prefix' => $v['ticket_prefix'], 'settings' => $settings])->save();
         Audit::record('company.updated', $tenant, ['fields' => array_keys($v)]);
 
