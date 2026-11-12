@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Building2, CheckCircle2, CreditCard, Plus } from 'lucide-react';
+import { Building2, CheckCircle2, CreditCard, Mail, Plus, Send } from 'lucide-react';
 import { api, fmt } from '@/lib/api';
 import { Badge, Button, ErrorBox, Field, Loading, Modal, PageHead, Select, Stat, Tabs, Toggle, useAction, useApi } from '@/components/ui';
 
@@ -14,13 +14,14 @@ export default function Platform({ ctx }) {
   return (
     <>
       <PageHead title="Platform administration" subtitle="Manage every company on ChatBox: workspaces, plans, subscriptions and AI prices." />
-      <Tabs value={tab} onChange={setTab} items={[['companies', 'Companies'], ['plans', 'Plans'], ['prices', 'AI prices']]} />
+      <Tabs value={tab} onChange={setTab} items={[['companies', 'Companies'], ['plans', 'Plans'], ['prices', 'AI prices'], ['mail', 'Mail / SMTP']]} />
       <ErrorBox error={o.error} onRetry={o.reload} />
       {!o.data ? <Loading /> : (
         <>
           {tab === 'companies' && <Companies data={o.data.data} reload={() => o.reload(true)} />}
           {tab === 'plans' && <Plans plans={o.data.data.plans} reload={() => o.reload(true)} />}
           {tab === 'prices' && <Prices />}
+          {tab === 'mail' && <MailSettings />}
         </>
       )}
     </>
@@ -159,5 +160,112 @@ function Prices() {
       <div className="row end"><Button variant="primary" disabled={busy || !f.model} onClick={() => run(async () => { const r = await api('/ai/prices', { method: 'POST', body: f }); setSaved([...saved, r.data]); }, 'Price saved')}>Save price</Button></div>
       {saved.map((p) => <div key={p.id} className="small row gap-sm"><CheckCircle2 size={14} className="tone-green" /> {p.provider} {p.model}: {p.input_per_million} / {p.output_per_million}</div>)}
     </section>
+  );
+}
+
+function MailSettings() {
+  const s = useApi('/platform/mail-settings');
+  const [draft, setDraft] = useState(null);
+  const [testEmail, setTestEmail] = useState('');
+  const [testMsg, setTestMsg] = useState(null);
+  const [run, busy] = useAction();
+
+  const f = draft ?? (s.data?.data ? { ...s.data.data, password: '', clear_password: false } : null);
+  const setF = (next) => setDraft(next);
+
+  if (s.error) return <ErrorBox error={s.error} onRetry={s.reload} />;
+  if (!f) return <Loading />;
+
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const save = () => run(async () => {
+    const r = await api('/platform/mail-settings', { method: 'POST', body: f });
+    setF({ ...r.data, password: '', clear_password: false });
+  }, 'Mail settings saved');
+
+  const sendTest = async () => {
+    setTestMsg(null);
+    await run(async () => {
+      try {
+        const r = await api('/platform/mail-settings/test', {
+          method: 'POST',
+          body: { ...f, to_email: testEmail },
+        });
+        setTestMsg({ ok: true, text: r.message });
+      } catch (err) {
+        setTestMsg({ ok: false, text: err.message });
+        throw err;
+      }
+    });
+  };
+
+  return (
+    <div className="stack">
+      <section className="card">
+        <div className="row gap-sm" style={{ marginBottom: 8 }}>
+          <Mail size={18} />
+          <h3 style={{ margin: 0 }}>Outbound SMTP settings</h3>
+        </div>
+        <p className="muted small">
+          Used for staff <strong>Forgot password</strong> links, customer PIN resets and chat transcripts. Passwords are encrypted at rest and never shown again after saving.
+        </p>
+        <Toggle
+          checked={!!f.enabled}
+          onChange={(v) => setF({ ...f, enabled: v })}
+          label="Use these SMTP settings for all outgoing e-mails"
+        />
+        <div className="grid-2" style={{ marginTop: 12 }}>
+          <Field label="SMTP host"><input className="input" placeholder="mail.yourdomain.com" value={f.host} onChange={set('host')} /></Field>
+          <Field label="SMTP port"><input className="input" type="number" min={1} max={65535} value={f.port} onChange={(e) => setF({ ...f, port: Number(e.target.value) || 587 })} /></Field>
+          <Field label="Encryption">
+            <Select
+              value={f.encryption}
+              onChange={(v) => setF({ ...f, encryption: v, port: v === 'ssl' && f.port === 587 ? 465 : v === 'tls' && f.port === 465 ? 587 : f.port })}
+              options={[
+                { value: 'ssl', label: 'SSL / TLS (port 465)' },
+                { value: 'tls', label: 'STARTTLS (port 587)' },
+                { value: 'none', label: 'None (plain)' },
+              ]}
+            />
+          </Field>
+          <Field label="SMTP username"><input className="input" placeholder="support@yourdomain.com" autoComplete="off" value={f.username} onChange={set('username')} /></Field>
+          <Field
+            label="SMTP password"
+            hint={f.has_password ? 'A password is saved. Leave blank to keep the existing password.' : 'Enter your e-mail account password.'}
+          >
+            <input
+              className="input"
+              type="password"
+              autoComplete="new-password"
+              placeholder={f.has_password ? '•••••••• (saved)' : 'Enter SMTP password'}
+              value={f.password}
+              onChange={(e) => setF({ ...f, password: e.target.value, clear_password: false })}
+            />
+          </Field>
+          <Field label="From e-mail"><input className="input" type="email" placeholder="support@yourdomain.com" value={f.from_address} onChange={set('from_address')} /></Field>
+          <Field label="From name"><input className="input" placeholder="SaluteHost Support" value={f.from_name} onChange={set('from_name')} /></Field>
+        </div>
+        <div className="row end" style={{ marginTop: 12 }}>
+          <Button variant="primary" disabled={busy} onClick={save}>Save mail settings</Button>
+        </div>
+      </section>
+
+      <section className="card">
+        <h3 style={{ marginTop: 0 }}>Send a test e-mail</h3>
+        <p className="muted small">Verify your SMTP credentials right away before using Forgot Password.</p>
+        <div className="row gap-sm" style={{ alignItems: 'flex-end' }}>
+          <div style={{ flex: 1 }}>
+            <Field label="Recipient e-mail">
+              <input className="input" type="email" placeholder="you@example.com" value={testEmail} onChange={(e) => setTestEmail(e.target.value)} />
+            </Field>
+          </div>
+          <Button disabled={busy || !testEmail} onClick={sendTest}><Send size={14} />Send test e-mail</Button>
+        </div>
+        {testMsg && (
+          <div className={`alert ${testMsg.ok ? 'alert-ok' : 'alert-err'}`} style={{ marginTop: 12 }}>
+            {testMsg.text}
+          </div>
+        )}
+      </section>
+    </div>
   );
 }

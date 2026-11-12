@@ -25,6 +25,7 @@ class TranscriptService
         $subject = str_replace(["\r", "\n"], ' ', "Chat Transcript: {$propName} ({$dateStr})");
 
         try {
+            MailSettingsService::applyRuntimeConfig();
             Mail::html($html, function ($message) use ($recipientEmail, $subject) {
                 $message->to($recipientEmail)->subject($subject);
             });

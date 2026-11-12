@@ -325,6 +325,7 @@ class CustomerAuthService
     public static function mailSafely(string $to, string $subject, string $body): bool
     {
         try {
+            MailSettingsService::applyRuntimeConfig();
             Mail::raw($body, function ($m) use ($to, $subject) {
                 $m->to($to)->subject(str_replace(["\r", "\n"], ' ', $subject));
             });

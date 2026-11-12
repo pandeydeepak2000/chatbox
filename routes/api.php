@@ -203,6 +203,9 @@ Route::prefix('v1')->group(function () {
         Route::post('platform/tenants/{id}/subscription', [PlatformController::class, 'setSubscription'])->middleware('role:super_admin');
         Route::post('platform/plans', [PlatformController::class, 'savePlan'])->middleware('role:super_admin');
         Route::post('platform/plans/{code}', [PlatformController::class, 'savePlan'])->middleware('role:super_admin');
+        Route::get('platform/mail-settings', [PlatformController::class, 'mailSettings'])->middleware('role:super_admin');
+        Route::post('platform/mail-settings', [PlatformController::class, 'saveMailSettings'])->middleware('role:super_admin');
+        Route::post('platform/mail-settings/test', [PlatformController::class, 'testMailSettings'])->middleware('role:super_admin');
 
         // Leads Management (company + website scoped)
         // Website customers (Support PIN accounts): list, administrator PIN reset, unlock.

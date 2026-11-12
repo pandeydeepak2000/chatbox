@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Tenant;
 use App\Services\Audit;
+use App\Services\MailSettingsService;
 use App\Services\PlanLimits;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -114,6 +115,90 @@ class PlatformController extends Controller
         Audit::record('platform.plan_saved', null, ['code' => $code ?? $v['code']]);
 
         return response()->json(['success' => true, 'data' => $this->plans()]);
+    }
+
+    public function mailSettings(Request $request): JsonResponse
+    {
+        $this->guard($request);
+
+        return response()->json([
+            'success' => true,
+            'data' => MailSettingsService::getPublic(),
+        ]);
+    }
+
+    public function saveMailSettings(Request $request): JsonResponse
+    {
+        $this->guard($request);
+
+        $data = $request->validate([
+            'enabled' => ['required', 'boolean'],
+            'host' => ['required_if:enabled,true', 'nullable', 'string', 'max:255', 'regex:/^[a-zA-Z0-9._-]+$/'],
+            'port' => ['required', 'integer', 'min:1', 'max:65535'],
+            'encryption' => ['required', Rule::in(['tls', 'ssl', 'none'])],
+            'username' => ['nullable', 'string', 'max:255'],
+            'password' => ['nullable', 'string', 'max:500'],
+            'clear_password' => ['sometimes', 'boolean'],
+            'from_address' => ['required_if:enabled,true', 'nullable', 'email', 'max:255'],
+            'from_name' => ['nullable', 'string', 'max:120'],
+        ]);
+
+        $saved = MailSettingsService::save($data, $request->user()?->id);
+
+        Audit::record('platform.mail_settings_updated', null, [
+            'enabled' => $saved['enabled'],
+            'host' => $saved['host'],
+            'port' => $saved['port'],
+            'encryption' => $saved['encryption'],
+            'from_address' => $saved['from_address'],
+        ], $request->user());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Mail settings saved.',
+            'data' => $saved,
+        ]);
+    }
+
+    public function testMailSettings(Request $request): JsonResponse
+    {
+        $this->guard($request);
+
+        $data = $request->validate([
+            'to_email' => ['required', 'email', 'max:255'],
+            'host' => ['sometimes', 'nullable', 'string', 'max:255', 'regex:/^[a-zA-Z0-9._-]+$/'],
+            'port' => ['sometimes', 'integer', 'min:1', 'max:65535'],
+            'encryption' => ['sometimes', Rule::in(['tls', 'ssl', 'none'])],
+            'username' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'password' => ['sometimes', 'nullable', 'string', 'max:500'],
+            'clear_password' => ['sometimes', 'boolean'],
+            'from_address' => ['sometimes', 'nullable', 'email', 'max:255'],
+            'from_name' => ['sometimes', 'nullable', 'string', 'max:120'],
+        ]);
+
+        $draft = array_key_exists('host', $data) ? $data : null;
+        if ($draft !== null && empty($draft['host'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please enter an SMTP host before sending a test email.',
+            ], 422);
+        }
+
+        try {
+            MailSettingsService::sendTestEmail((string) $data['to_email'], $draft);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'SMTP test failed: ' . Str::limit($e->getMessage(), 220),
+            ], 422);
+        }
+
+        Audit::record('platform.mail_test_sent', null, ['to_email' => $data['to_email']], $request->user());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Test email sent to ' . $data['to_email'] . '.',
+        ]);
     }
 
     private function plans(): array

@@ -9,6 +9,7 @@ use App\Models\Property;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Services\Audit;
+use App\Services\MailSettingsService;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Password;
@@ -538,8 +539,18 @@ class AuthController extends Controller
             'email' => ['required', 'string', 'email', 'max:255'],
         ]);
 
-        $status = Password::sendResetLink(['email' => mb_strtolower(trim($validated['email']))]);
-        $user = User::where('email', $validated['email'])->first();
+        $email = mb_strtolower(trim($validated['email']));
+        $user = User::where('email', $email)->first();
+
+        MailSettingsService::applyRuntimeConfig();
+
+        try {
+            $status = Password::sendResetLink(['email' => $email]);
+        } catch (\Throwable $e) {
+            Log::warning('Password reset e-mail could not be sent: ' . $e->getMessage(), ['email' => $email]);
+            $status = 'mail_error';
+        }
+
         Audit::record('auth.password_reset_requested', $user, ['status' => $status], tenantId: $user?->tenant_id);
 
         return response()->json([
