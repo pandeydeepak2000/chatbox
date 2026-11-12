@@ -649,7 +649,12 @@ class AuthController extends Controller
             'password' => ['nullable', 'string', 'min:8'],
             'role' => ['sometimes', 'string', 'in:super_admin,admin,agent'],
             'tenant_id' => ['nullable', 'string', 'exists:tenants,id'],
+            'is_active' => ['sometimes', 'boolean'],
         ]);
+
+        if (array_key_exists('is_active', $validated) && ! $validated['is_active'] && $targetUser->id === $currentUser->id) {
+            return response()->json(['success' => false, 'message' => 'You cannot deactivate your own account.'], 422);
+        }
 
         $role = $validated['role'] ?? $targetUser->role;
         $tenantId = array_key_exists('tenant_id', $validated) ? $validated['tenant_id'] : $targetUser->tenant_id;

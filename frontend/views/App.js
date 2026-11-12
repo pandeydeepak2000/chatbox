@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  BarChart3, Bell, BookOpen, Bot, Building2, ChevronRight, Globe, LayoutDashboard, LifeBuoy, LogOut, Menu,
-  MessageSquareText, ShieldCheck, Sparkles, Target, Ticket, UserRound, Users, Zap,
+  BarChart3, Bell, BookOpen, Bot, Building2, ChevronRight, CreditCard, Globe, LayoutDashboard, LifeBuoy, LogOut,
+  Mail, Menu, MessageSquareText, Server, ShieldCheck, Sparkles, Target, Ticket, UserRound, Users, Zap,
 } from 'lucide-react';
 import { api, getToken, setToken, setUnauthorizedHandler } from '@/lib/api';
 import { Button, Field, Loading, ToastProvider, useAction } from '@/components/ui';
@@ -67,6 +67,22 @@ const NAV_SECTIONS = [
   ]],
 ];
 const ALL_NAV = NAV_SECTIONS.flatMap(([, items]) => items);
+
+const PLATFORM_NAV_SECTIONS = [
+  ['Platform', [
+    ['platform', 'Overview', LayoutDashboard],
+    ['companies', 'Companies', Building2],
+    ['plans', 'Plans & Billing', CreditCard],
+    ['users', 'Users & Staff', Users],
+  ]],
+  ['System & Security', [
+    ['prices', 'AI Pricing', Bot],
+    ['mail', 'Mail / SMTP', Mail],
+    ['audit', 'Audit & Security', ShieldCheck],
+    ['system', 'System Health', Server],
+  ]],
+];
+const ALL_PLATFORM_NAV = PLATFORM_NAV_SECTIONS.flatMap(([, items]) => items);
 
 export default function App() {
   return (
@@ -232,6 +248,10 @@ function Shell({ me, route, slug, reloadMe, onLogout }) {
     onLogout();
   };
 
+  const sections = platformOnly ? PLATFORM_NAV_SECTIONS : NAV_SECTIONS;
+  const navItems = platformOnly ? ALL_PLATFORM_NAV : ALL_NAV;
+  const activeView = platformOnly ? (ALL_PLATFORM_NAV.some(([v]) => v === route.view) ? route.view : 'platform') : route.view;
+
   const View = platformOnly ? Platform : {
     customers: Customers,
     overview: Overview, inbox: Inbox, tickets: Tickets, leads: Leads, knowledge: Knowledge, ai: AiSettings,
@@ -240,7 +260,7 @@ function Shell({ me, route, slug, reloadMe, onLogout }) {
 
   const siteName = slug ? (me.properties || []).find((p) => p.slug === slug)?.site_name : null;
   const workspaceName = me.user.tenant?.name || 'ChatBox Platform';
-  const current = platformOnly ? ALL_NAV.find(([v]) => v === 'platform') : (ALL_NAV.find(([v]) => v === route.view) || ALL_NAV[0]);
+  const current = navItems.find(([v]) => v === activeView) || navItems[0];
   const roleLabel = perms.is_super_admin ? 'Super admin' : perms.is_company_owner ? 'Company owner' : perms.is_company_admin ? 'Company admin' : 'Support agent';
   const initials = (me.user.name || '?').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
@@ -251,12 +271,12 @@ function Shell({ me, route, slug, reloadMe, onLogout }) {
           <div className="brand-mark sm"><LifeBuoy size={18} /></div>
           <div className="grow">
             <div className="side-title ellipsis">{workspaceName}</div>
-            <div className="side-sub ellipsis">{siteName ? `${siteName} admin` : 'Support workspace'}</div>
+            <div className="side-sub ellipsis">{platformOnly ? 'Platform control center' : (siteName ? `${siteName} admin` : 'Support workspace')}</div>
           </div>
         </div>
         <nav>
-          {NAV_SECTIONS.map(([section, items]) => {
-            const visible = items.filter(allowed);
+          {sections.map(([section, items]) => {
+            const visible = platformOnly ? items : items.filter(allowed);
             if (!visible.length) return null;
             return (
               <div key={section}>
@@ -279,9 +299,11 @@ function Shell({ me, route, slug, reloadMe, onLogout }) {
             </div>
           </div>
           <div className="side-actions">
-            <Button size="sm" onClick={toggleOnline} title={online ? 'Customers see you as available' : 'You will not receive live hand-overs'}>
-              <span className={`status-dot ${online ? 'on' : ''}`} />{online ? 'Online' : 'Away'}
-            </Button>
+            {!platformOnly && (
+              <Button size="sm" onClick={toggleOnline} title={online ? 'Customers see you as available' : 'You will not receive live hand-overs'}>
+                <span className={`status-dot ${online ? 'on' : ''}`} />{online ? 'Online' : 'Away'}
+              </Button>
+            )}
             <Button size="sm" onClick={logout}><LogOut size={14} />Sign out</Button>
           </div>
         </div>
@@ -298,7 +320,7 @@ function Shell({ me, route, slug, reloadMe, onLogout }) {
           <NotificationBell />
         </header>
         <main className="content">
-          <View ctx={ctx} />
+          <View ctx={ctx} activeSection={activeView} />
         </main>
       </div>
     </div>

@@ -199,10 +199,14 @@ Route::prefix('v1')->group(function () {
 
         // Platform super admin: plans and subscriptions
         Route::get('platform/overview', [PlatformController::class, 'overview'])->middleware('role:super_admin');
+        Route::post('platform/tenants/{id}', [PlatformController::class, 'updateTenant'])->middleware('role:super_admin');
         Route::post('platform/tenants/{id}/status', [PlatformController::class, 'setTenantStatus'])->middleware('role:super_admin');
         Route::post('platform/tenants/{id}/subscription', [PlatformController::class, 'setSubscription'])->middleware('role:super_admin');
         Route::post('platform/plans', [PlatformController::class, 'savePlan'])->middleware('role:super_admin');
         Route::post('platform/plans/{code}', [PlatformController::class, 'savePlan'])->middleware('role:super_admin');
+        Route::get('platform/ai-prices', [PlatformController::class, 'aiPrices'])->middleware('role:super_admin');
+        Route::get('platform/audit-logs', [PlatformController::class, 'auditLogs'])->middleware('role:super_admin');
+        Route::get('platform/system-health', [PlatformController::class, 'systemHealth'])->middleware('role:super_admin');
         Route::get('platform/mail-settings', [PlatformController::class, 'mailSettings'])->middleware('role:super_admin');
         Route::post('platform/mail-settings', [PlatformController::class, 'saveMailSettings'])->middleware('role:super_admin');
         Route::post('platform/mail-settings/test', [PlatformController::class, 'testMailSettings'])->middleware('role:super_admin');

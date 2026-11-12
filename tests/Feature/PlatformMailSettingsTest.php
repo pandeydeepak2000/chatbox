@@ -187,4 +187,37 @@ class PlatformMailSettingsTest extends TestCase
         $this->assertSame('mail.salutehost.com', config('mail.mailers.smtp.host'));
         $this->assertSame('support@salutehost.com', config('mail.from.address'));
     }
+
+    public function test_only_super_admin_can_change_company_email_and_view_platform_tools(): void
+    {
+        $super = $this->makeSuperAdmin();
+        $admin = $this->makeCompanyAdmin();
+        $tenantId = $admin->tenant_id;
+
+        // Company admin cannot update company email or open platform tools.
+        Sanctum::actingAs($admin);
+        $this->postJson("/api/v1/platform/tenants/{$tenantId}", [
+            'name' => 'Hacked',
+            'email' => 'hacked@salutehost.com',
+        ])->assertStatus(403);
+        $this->getJson('/api/v1/platform/ai-prices')->assertStatus(403);
+        $this->getJson('/api/v1/platform/audit-logs')->assertStatus(403);
+        $this->getJson('/api/v1/platform/system-health')->assertStatus(403);
+
+        // Super admin can update company name + email.
+        Sanctum::actingAs($super);
+        $this->postJson("/api/v1/platform/tenants/{$tenantId}", [
+            'name' => 'SaluteHost Cloud',
+            'email' => 'billing@salutehost.com',
+            'update_owner_email' => true,
+        ])->assertOk()->assertJsonPath('data.email', 'billing@salutehost.com');
+
+        $this->assertDatabaseHas('tenants', ['id' => $tenantId, 'name' => 'SaluteHost Cloud', 'email' => 'billing@salutehost.com']);
+
+        $this->getJson('/api/v1/platform/overview')->assertOk()->assertJsonStructure(['data' => ['summary' => ['total_companies', 'total_websites', 'total_staff', 'total_conversations', 'total_tickets', 'total_leads']]]);
+        $this->getJson('/api/v1/platform/ai-prices')->assertOk()->assertJsonPath('success', true);
+        $this->getJson('/api/v1/platform/audit-logs')->assertOk()->assertJsonPath('success', true);
+        $this->getJson('/api/v1/platform/system-health')->assertOk()->assertJsonPath('data.db_ok', true);
+    }
 }
+
