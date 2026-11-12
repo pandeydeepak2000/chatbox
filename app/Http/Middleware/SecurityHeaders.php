@@ -9,7 +9,7 @@ use Symfony\Component\HttpFoundation\Response;
 class SecurityHeaders
 {
     private const ALLOW_METHODS = 'GET, POST, PUT, DELETE, OPTIONS';
-    private const ALLOW_HEADERS = 'Content-Type, Authorization, X-Requested-With, X-Visitor-Token, Accept, Origin';
+    private const ALLOW_HEADERS = 'Content-Type, Authorization, X-Requested-With, X-Visitor-Token, X-Customer-Token, Accept, Origin';
 
     /**
      * Security headers + CORS.

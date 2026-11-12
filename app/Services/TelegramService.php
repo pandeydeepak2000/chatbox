@@ -30,7 +30,12 @@ class TelegramService
                 return ['ok' => true, 'error' => ''];
             }
 
-            return ['ok' => false, 'error' => 'Telegram error ' . $response->status() . ': ' . mb_substr((string) ($json['description'] ?? 'unknown error'), 0, 200)];
+            $desc = mb_substr((string) ($json['description'] ?? 'unknown error'), 0, 200);
+            if (stripos($desc, 'chat not found') !== false) {
+                $desc .= ' — Open your bot in Telegram and press /start first (for personal chat), or add the bot to your group/channel and use its negative (-100...) chat ID.';
+            }
+
+            return ['ok' => false, 'error' => 'Telegram error ' . $response->status() . ': ' . $desc];
         } catch (\Throwable $e) {
             return ['ok' => false, 'error' => 'Connection failed: ' . str_replace($token, '[token]', $e->getMessage())];
         }

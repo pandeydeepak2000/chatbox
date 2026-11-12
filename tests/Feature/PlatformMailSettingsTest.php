@@ -219,5 +219,18 @@ class PlatformMailSettingsTest extends TestCase
         $this->getJson('/api/v1/platform/audit-logs')->assertOk()->assertJsonPath('success', true);
         $this->getJson('/api/v1/platform/system-health')->assertOk()->assertJsonPath('data.db_ok', true);
     }
+
+    public function test_widget_cors_preflight_allows_customer_token_header(): void
+    {
+        $res = $this->options('/api/v1/widget/start', [], [
+            'Origin' => 'https://salutehost.com',
+            'Access-Control-Request-Method' => 'POST',
+            'Access-Control-Request-Headers' => 'content-type, x-customer-token',
+        ]);
+
+        $res->assertStatus(204);
+        $allowHeaders = (string) $res->headers->get('Access-Control-Allow-Headers');
+        $this->assertStringContainsString('X-Customer-Token', $allowHeaders);
+    }
 }
 
