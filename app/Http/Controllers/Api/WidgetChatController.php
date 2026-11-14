@@ -180,18 +180,24 @@ class WidgetChatController extends Controller
         }
         $openTicket = Ticket::where('open_conversation_id', $conversation->id)->first();
 
-        // 1-minute timeout: if transferred to senior department and team has not replied in 60s, auto-create ticket
-        if (! $openTicket
-            && $conversation->handler === 'human'
+        // 1-minute senior department transfer window:
+        // When transferred to senior department, give human staff 60s to take over live.
+        // During the 60s, hide the ticket reference from the customer.
+        // If 60s elapse without staff reply, deliver the ticket creation message and expose the ticket.
+        $ticketMessageSent = $conversation->messages()->where('metadata->source', 'ticket')->exists();
+        $isWaitingSenior = $conversation->handler === 'human'
             && ! $conversation->first_human_response_at
-            && $conversation->handover_at
-            && $conversation->handover_at->lte(now()->subSeconds(60))) {
+            && ! $ticketMessageSent;
+
+        if ($isWaitingSenior && $conversation->handover_at && $conversation->handover_at->lte(now()->subSeconds(60))) {
             try {
-                [$ticket, $created] = TicketService::createOrReuse($conversation, ['source' => 'transfer_timeout']);
-                if ($created) {
+                if (! $openTicket) {
+                    [$openTicket, $created] = TicketService::createOrReuse($conversation, ['source' => 'transfer_timeout']);
+                }
+                if ($openTicket) {
                     $lang = $conversation->language ?? 'en';
-                    SupportBot::botReply($conversation, SupportBot::t('ticket_created', $lang, ['ref' => $ticket->reference]), ['source' => 'ticket', 'ticket_id' => $ticket->id], true);
-                    $openTicket = $ticket;
+                    SupportBot::botReply($conversation, SupportBot::t('ticket_created', $lang, ['ref' => $openTicket->reference]) . SupportBot::hoursNote($conversation->property, $lang), ['source' => 'ticket', 'ticket_id' => $openTicket->id], true);
+                    $ticketMessageSent = true;
                     $query = $conversation->messages()->visibleToCustomer();
                     if ($afterSeq !== null && is_numeric($afterSeq)) {
                         $query->where('seq', '>', (int) $afterSeq);
@@ -203,6 +209,8 @@ class WidgetChatController extends Controller
             }
         }
 
+        $customerOpenTicket = ($isWaitingSenior && ! $ticketMessageSent) ? null : $openTicket;
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -211,7 +219,7 @@ class WidgetChatController extends Controller
                 'status' => $conversation->status,
                 'handler' => $conversation->handler,
                 'ai_pending' => $conversation->ai_pending_since !== null && $conversation->ai_pending_since->gt(now()->subMinutes(3)),
-                'open_ticket' => $openTicket?->toCustomerArray(),
+                'open_ticket' => $customerOpenTicket?->toCustomerArray(),
                 'assigned_agent' => $assignedAgent,
                 'started_at' => $conversation->created_at?->toIso8601String(),
             ],

@@ -33,17 +33,24 @@ class Notifier
 
     public static function ticketCreated(Ticket $ticket): void
     {
-        $ticket->loadMissing(['property', 'visitor']);
+        $ticket->loadMissing(['property', 'visitor', 'customerAccount']);
         $title = "New ticket {$ticket->reference}";
         $body = "{$ticket->property?->site_name}: {$ticket->subject}";
         self::toUsers(self::staffFor($ticket->property, $ticket->assigned_to), 'ticket.created', $title, $body, ['ticket_id' => $ticket->id]);
-        self::telegram($ticket->tenant_id, 'ticket.created', implode("\n", [
+
+        $customerEmail = $ticket->customerAccount?->email ?: $ticket->visitor?->email;
+        $lines = [
             "🎫 {$title} (" . (Ticket::PRIORITIES[$ticket->priority] ?? $ticket->priority) . ')',
             "Website: {$ticket->property?->site_name}",
-            "Subject: {$ticket->subject}",
-            'Source: ' . str_replace('_', ' ', $ticket->source),
-            'Open: ' . url('/app/tickets?id=' . $ticket->id),
-        ]));
+        ];
+        if ($customerEmail) {
+            $lines[] = "📧 Customer: {$customerEmail}";
+        }
+        $lines[] = "Subject: {$ticket->subject}";
+        $lines[] = 'Source: ' . str_replace('_', ' ', $ticket->source);
+        $lines[] = 'Open: ' . url('/app/tickets?id=' . $ticket->id);
+
+        self::telegram($ticket->tenant_id, 'ticket.created', implode("\n", $lines));
     }
 
     public static function chatStarted(Conversation $conversation, ?Message $firstMessage = null): void

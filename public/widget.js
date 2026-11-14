@@ -34,7 +34,7 @@
     sessionTimeoutMinutes: 10, chosenDeptId: null, chosenDeptName: null,
     tickets: [], conversations: [], aiPending: false, handler: 'ai', openTicket: null, status: null,
     unread: 0, lastActivity: Date.now(), pollTimer: null, sending: false, error: '', notice: '', forgotEmail: '',
-    idStep: 'email', idEmail: '', guestChosen: false,
+    idStep: 'email', idEmail: '', createPin: '', guestChosen: false,
   };
 
   function uid() { return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(16).slice(2)); }
@@ -564,17 +564,56 @@
       } }, email, sendBtn);
     } else {
       body.appendChild(meSay(S.idEmail));
-      var creating = S.idStep === 'create';
-      body.appendChild(botSay(creating
-        ? 'Set a 6-digit Chat PIN. Next time, your email + this PIN opens all your chats and tickets.'
-        : 'Welcome back! Enter your 6-digit Chat PIN to continue where you left off.'));
+      var isCreate = S.idStep === 'create';
+      var isConfirm = S.idStep === 'confirm';
+      var isEnter = S.idStep === 'enter';
+
+      var promptMsg = isEnter
+        ? 'Welcome back! Enter your 6-digit Chat PIN to continue where you left off.'
+        : (isConfirm
+          ? 'Please re-enter your 6-digit Chat PIN to confirm.'
+          : 'Set a 6-digit Chat PIN. Next time, your email + this PIN opens all your chats and tickets.');
+      body.appendChild(botSay(promptMsg));
+
+      var cardTitle = isEnter ? 'Enter Chat PIN' : (isConfirm ? 'Confirm Chat PIN' : 'Create Chat PIN');
+      var hintMsg = isEnter
+        ? (S.sending ? 'Checking…' : '6 digits, numbers only.')
+        : (isConfirm ? 'Re-enter the same 6 digits.' : '6 digits, numbers only. Keep it safe.');
+
+      var onPinComplete = function (pin) {
+        if (isEnter) {
+          customerAuth('login', { email: S.idEmail, pin: pin });
+        } else if (isCreate) {
+          S.createPin = pin;
+          S.idStep = 'confirm';
+          S.error = '';
+          render();
+        } else if (isConfirm) {
+          if (pin === S.createPin) {
+            customerAuth('signup', { email: S.idEmail, pin: pin });
+          } else {
+            S.createPin = '';
+            S.idStep = 'create';
+            S.error = 'PINs do not match. Please enter your PIN again.';
+            render();
+          }
+        }
+      };
+
+      var choices = [];
+      if (isConfirm) {
+        choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'create'; S.createPin = ''; S.error = ''; render(); } }, 'Re-enter PIN'));
+      }
+      choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'email'; S.createPin = ''; S.error = ''; render(); } }, 'Use a different email'));
+      if (isEnter) {
+        choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.screen = 'forgot'; S.forgotEmail = S.idEmail; S.error = ''; render(); } }, 'Forgot PIN?'));
+      }
+
       body.appendChild(h('div', { class: 'idcard' },
-        h('h4', { text: creating ? 'Create Chat PIN' : 'Enter Chat PIN' }),
-        pinBoxes(function (pin) { customerAuth(creating ? 'signup' : 'login', { email: S.idEmail, pin: pin }); }),
-        h('div', { class: 'hint', text: creating ? '6 digits, numbers only. Keep it safe.' : (S.sending ? 'Checking…' : '6 digits, numbers only.') }),
-        h('div', { class: 'choice' },
-          h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'email'; S.error = ''; render(); } }, 'Use a different email'),
-          creating ? null : h('button', { class: 'link', type: 'button', onclick: function () { S.screen = 'forgot'; S.forgotEmail = S.idEmail; S.error = ''; render(); } }, 'Forgot PIN?'))));
+        h('h4', { text: cardTitle }),
+        pinBoxes(onPinComplete),
+        h('div', { class: 'hint', text: hintMsg }),
+        h('div', { class: 'choice' }, choices)));
       foot = h('div', { class: 'foot' }, alerts());
     }
     return h('div', { style: 'display:flex;flex-direction:column;flex:1;min-height:0' }, alerts(), body, foot);
@@ -615,14 +654,6 @@
           return h('button', { class: 'item', onclick: function () { openConversation(c.id); } },
             h('div', { text: c.preview || 'Conversation' }),
             h('div', { class: 'muted', text: new Date(c.last_message_at || c.created_at).toLocaleString() }));
-        })));
-    }
-
-    if (S.faqs && S.faqs.length > 0) {
-      body.appendChild(h('div', { class: 'card faq' },
-        h('h3', { text: 'Quick answers' }),
-        S.faqs.slice(0, 4).map(function (f) {
-          return h('details', null, h('summary', { text: f.question }), h('p', { text: f.answer }));
         })));
     }
 

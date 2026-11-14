@@ -162,11 +162,7 @@ class AiResponder
                 break;
             default: // escalate, error, refused, unreliable
                 $summary = $result->data['ticket_summary'] ?? null;
-                if (in_array($decision['outcome'], ['error', 'refused'], true)) {
-                    SupportBot::requestHuman($conversation, $message, $lang, 'ai_escalation');
-                } else {
-                    SupportBot::escalate($conversation, $message, $lang, 'ai_escalation', '', 'general', is_array($summary) ? $this->cleanSummary($summary) : null);
-                }
+                SupportBot::transferSeniorDepartment($conversation, $message, $lang, 'ai_escalation', '', 'general', is_array($summary) ? $this->cleanSummary($summary) : null);
         }
     }
 

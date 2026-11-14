@@ -163,6 +163,32 @@ class SupportBot
         return self::botReply($conversation, $prefix . self::t($key, $lang, ['ref' => $result['ticket']->reference]) . self::hoursNote($conversation->property, $lang), ['source' => 'ticket', 'ticket_id' => $result['ticket']->id], true);
     }
 
+    /** Escalate to senior department with a 1-minute live wait window before announcing the ticket. */
+    public static function transferSeniorDepartment(Conversation $conversation, Message $message, string $lang, string $source, string $prefix = '', string $category = 'general', ?array $summary = null): ?Message
+    {
+        try {
+            [$ticket, $created] = TicketService::createOrReuse($conversation, array_filter([
+                'source' => $source,
+                'category' => $category,
+                'summary' => $summary,
+                'idempotency_key' => 'msg-' . $message->id,
+            ], fn ($v) => $v !== null));
+        } catch (\Throwable $e) {
+            Log::error('Ticket creation failed: ' . $e->getMessage(), ['conversation' => $conversation->id]);
+
+            return self::botReply($conversation, $prefix . self::t('ticket_failed', $lang), ['source' => 'escalation_failed'], true);
+        }
+
+        $conversation->update([
+            'handler' => 'human',
+            'handover_at' => now(),
+            'ai_pending_since' => null,
+        ]);
+        \App\Services\Notifier::chatStarted($conversation, $message);
+
+        return self::botReply($conversation, $prefix . self::t('human_live', $lang), ['source' => 'handover', 'waiting_senior' => true, 'ticket_id' => $ticket->id], true);
+    }
+
     /** Escalate with a ticket (summary optional, e.g. from the LLM). */
     public static function escalate(Conversation $conversation, Message $message, string $lang, string $source, string $prefix = '', string $category = 'general', ?array $summary = null): ?Message
     {
