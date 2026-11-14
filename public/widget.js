@@ -35,6 +35,7 @@
     tickets: [], conversations: [], aiPending: false, handler: 'ai', openTicket: null, status: null,
     unread: 0, lastActivity: Date.now(), pollTimer: null, sending: false, error: '', notice: '', forgotEmail: '',
     idStep: 'email', idEmail: '', createPin: '', guestChosen: false,
+    waitingSenior: false, seniorWaitRemaining: 0, seniorTimer: null,
   };
 
   function uid() { return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(16).slice(2)); }
@@ -236,6 +237,28 @@
     S.messages = c.messages || [];
     S.lastSeq = S.messages.reduce(function (m, x) { return Math.max(m, x.seq || 0); }, c.last_seq || 0);
     S.handler = c.handler || 'ai'; S.openTicket = c.open_ticket || null; S.aiPending = !!c.ai_pending;
+    S.waitingSenior = !!c.waiting_senior;
+    S.seniorWaitRemaining = typeof c.senior_wait_remaining === 'number' ? c.senior_wait_remaining : 0;
+    startSeniorTimer();
+  }
+
+  function startSeniorTimer() {
+    clearInterval(S.seniorTimer);
+    if (!S.waitingSenior || S.seniorWaitRemaining <= 0) return;
+    S.seniorTimer = setInterval(function () {
+      if (S.seniorWaitRemaining > 0) {
+        S.seniorWaitRemaining--;
+        var el = root ? root.getElementById('ehc-senior-timer') : null;
+        if (el) {
+          el.textContent = '0:' + (S.seniorWaitRemaining < 10 ? '0' : '') + S.seniorWaitRemaining;
+        }
+      }
+      if (S.seniorWaitRemaining <= 0) {
+        clearInterval(S.seniorTimer);
+        S.waitingSenior = false;
+        poll();
+      }
+    }, 1000);
   }
 
   function refreshCustomer() {
@@ -251,7 +274,7 @@
     clearTimeout(S.pollTimer);
     if (!S.conversation) return;
     var idle = Date.now() - S.lastActivity > 60000;
-    var delay = document.hidden ? 30000 : (!S.open ? 20000 : (S.aiPending ? 2500 : (idle ? 10000 : 3500)));
+    var delay = document.hidden ? 30000 : (!S.open ? 20000 : ((S.aiPending || S.waitingSenior) ? 2500 : (idle ? 10000 : 3500)));
     S.pollTimer = setTimeout(poll, delay);
   }
   function poll() {
@@ -268,7 +291,22 @@
             if (m.sender_type === 'agent' || m.sender_type === 'bot') fresh = true;
           }
         });
-        var sig = JSON.stringify([!!d.ai_pending, d.handler, d.open_ticket, d.status]);
+        if (d.waiting_senior !== undefined) {
+          if (S.waitingSenior !== !!d.waiting_senior) {
+            S.waitingSenior = !!d.waiting_senior;
+            changed = true;
+          }
+        }
+        if (typeof d.senior_wait_remaining === 'number' && d.senior_wait_remaining > 0) {
+          if (Math.abs(S.seniorWaitRemaining - d.senior_wait_remaining) > 3) {
+            S.seniorWaitRemaining = d.senior_wait_remaining;
+          }
+          startSeniorTimer();
+        } else if (!d.waiting_senior) {
+          S.seniorWaitRemaining = 0;
+          clearInterval(S.seniorTimer);
+        }
+        var sig = JSON.stringify([!!d.ai_pending, d.handler, d.open_ticket, d.status, !!d.waiting_senior]);
         if (sig !== S.syncSig) { S.syncSig = sig; changed = true; }
         S.aiPending = !!d.ai_pending; S.handler = d.handler; S.openTicket = d.open_ticket; S.conversation.status = d.status;
         if (fresh) { if (!S.open) S.unread++; ding(); }
@@ -748,7 +786,15 @@
       })));
     }
 
+    var seniorBanner = (S.waitingSenior && S.seniorWaitRemaining > 0 && !S.openTicket) ? h('div', {
+      style: 'background:#eff6ff;color:#1e40af;border-bottom:1px solid #bfdbfe;padding:8px 14px;font-size:12px;font-weight:500;display:flex;align-items:center;justify-content:space-between;'
+    },
+      h('span', { text: '⏳ Connecting to senior department…' }),
+      h('span', { id: 'ehc-senior-timer', style: 'font-variant-numeric:tabular-nums;font-weight:600;background:#dbeafe;padding:2px 8px;border-radius:12px;', text: '0:' + (S.seniorWaitRemaining < 10 ? '0' : '') + S.seniorWaitRemaining })
+    ) : null;
+
     return h('div', { style: 'display:flex;flex-direction:column;flex:1;min-height:0' },
+      seniorBanner,
       S.openTicket ? h('div', { class: 'banner', text: 'Ticket ' + S.openTicket.reference + ' · ' + S.openTicket.status_label + ' — replies appear here and under Tickets.' }) : null,
       body,
       h('div', { class: 'foot' }, alerts(), csat,

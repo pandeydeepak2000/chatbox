@@ -99,7 +99,7 @@ class AiResponder
         // few AI calls per company at the same time (protects the budget and cPanel's PHP workers).
         if (AiBudgetService::blockReason($settings, $conversation->visitor_id) !== null) {
             $conversation->forceFill(['ai_pending_since' => null])->save();
-            SupportBot::requestHuman($conversation, $message, $lang, 'ai_escalation');
+            SupportBot::transferSeniorDepartment($conversation, $message, $lang, 'ai_escalation');
 
             return;
         }
@@ -119,7 +119,7 @@ class AiResponder
             $reserved = AiBudgetService::reserve($settings, $conversation->visitor_id);
             if ($reserved === null) {
                 $conversation->forceFill(['ai_pending_since' => null])->save();
-                SupportBot::requestHuman($conversation, $message, $lang, 'ai_escalation');
+                SupportBot::transferSeniorDepartment($conversation, $message, $lang, 'ai_escalation');
 
                 return;
             }

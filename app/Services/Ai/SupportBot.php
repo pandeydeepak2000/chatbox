@@ -141,7 +141,7 @@ class SupportBot
             return null; // the opening greeting already answered
         }
 
-        return self::requestHuman($conversation, $message, $lang, 'ai_escalation');
+        return self::transferSeniorDepartment($conversation, $message, $lang, 'ai_escalation');
     }
 
     /** Hand over to staff: live when someone is online, otherwise a ticket (idempotent per message). */

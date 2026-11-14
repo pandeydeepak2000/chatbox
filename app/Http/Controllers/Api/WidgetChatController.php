@@ -210,6 +210,9 @@ class WidgetChatController extends Controller
         }
 
         $customerOpenTicket = ($isWaitingSenior && ! $ticketMessageSent) ? null : $openTicket;
+        $seniorWaitRemaining = ($isWaitingSenior && $conversation->handover_at)
+            ? max(0, 60 - (int) now()->diffInSeconds($conversation->handover_at))
+            : 0;
 
         return response()->json([
             'success' => true,
@@ -222,6 +225,8 @@ class WidgetChatController extends Controller
                 'open_ticket' => $customerOpenTicket?->toCustomerArray(),
                 'assigned_agent' => $assignedAgent,
                 'started_at' => $conversation->created_at?->toIso8601String(),
+                'waiting_senior' => $isWaitingSenior && ! $ticketMessageSent,
+                'senior_wait_remaining' => $seniorWaitRemaining,
             ],
         ]);
     }
@@ -762,8 +767,19 @@ class WidgetChatController extends Controller
     {
         $data = $conversation->only(['id', 'property_id', 'department_id', 'status', 'handler', 'rating', 'created_at', 'last_message_at', 'last_seq']);
         $data['messages'] = $conversation->messages()->visibleToCustomer()->reorder()->orderByDesc('seq')->limit(300)->get()->sortBy('seq')->values(); // latest 300 only
-        $data['open_ticket'] = Ticket::where('open_conversation_id', $conversation->id)->first()?->toCustomerArray();
+
+        $ticketMessageSent = $conversation->messages()->where('metadata->source', 'ticket')->exists();
+        $isWaitingSenior = $conversation->handler === 'human'
+            && ! $conversation->first_human_response_at
+            && ! $ticketMessageSent;
+
+        $openTicket = Ticket::where('open_conversation_id', $conversation->id)->first();
+        $data['open_ticket'] = ($isWaitingSenior && ! $ticketMessageSent) ? null : $openTicket?->toCustomerArray();
         $data['ai_pending'] = $conversation->ai_pending_since !== null;
+        $data['waiting_senior'] = $isWaitingSenior && ! $ticketMessageSent;
+        $data['senior_wait_remaining'] = ($isWaitingSenior && $conversation->handover_at)
+            ? max(0, 60 - (int) now()->diffInSeconds($conversation->handover_at))
+            : 0;
 
         return $data;
     }
