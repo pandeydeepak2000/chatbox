@@ -563,7 +563,8 @@
     var body = h('div', { class: 'body scroll', 'aria-live': 'polite' });
     body.appendChild(botSay(welcome));
 
-    if (S.departments && S.departments.length > 0) {
+    var hasDepts = S.departments && S.departments.length > 0;
+    if (hasDepts) {
       var chipWrap = h('div', { class: 'dept-chips' });
       S.departments.forEach(function (d) {
         var on = S.chosenDeptId === d.id;
@@ -584,36 +585,38 @@
       body.appendChild(meSay(S.chosenDeptName));
     }
 
-    body.appendChild(botSay('Please share your email address.'));
     var foot = null;
 
-    if (S.idStep === 'email' || !S.idEmail) {
-      var email = h('input', {
-        type: 'email',
-        required: true,
-        placeholder: 'you@example.com',
-        'aria-label': 'E-mail',
-        maxlength: '255',
-        autocomplete: 'email',
-        class: 'pill-input',
-        value: S.idEmail || ''
-      });
-      var sendBtn = h('button', { class: 'pill-send', type: 'submit', disabled: S.sending }, S.sending ? '…' : 'Send');
-      foot = h('form', { class: 'pill-row', onsubmit: function (e) {
-        e.preventDefault();
-        var v = email.value.trim();
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { S.error = 'Please enter a valid email address.'; render(); return; }
-        S.sending = true; S.error = ''; render();
-        call('POST', '/customer/identify', { property_key: cfg.propertyKey, email: v }).then(function (r) {
-          S.sending = false;
-          if (!r.ok) { S.error = r.message; render(); return; }
-          S.idEmail = v;
-          S.idStep = r.json.data.exists ? 'enter' : 'create';
-          if (r.json.data.locked) S.error = 'Too many wrong PINs. Please wait a little, or use "Forgot PIN".';
-          render();
+    if (!hasDepts || S.chosenDeptName) {
+      body.appendChild(botSay('Please share your email address.'));
+
+      if (S.idStep === 'email' || !S.idEmail) {
+        var email = h('input', {
+          type: 'email',
+          required: true,
+          placeholder: 'you@example.com',
+          'aria-label': 'E-mail',
+          maxlength: '255',
+          autocomplete: 'email',
+          class: 'pill-input',
+          value: S.idEmail || ''
         });
-      } }, email, sendBtn);
-    } else {
+        var sendBtn = h('button', { class: 'pill-send', type: 'submit', disabled: S.sending }, S.sending ? '…' : 'Send');
+        foot = h('form', { class: 'pill-row', onsubmit: function (e) {
+          e.preventDefault();
+          var v = email.value.trim();
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { S.error = 'Please enter a valid email address.'; render(); return; }
+          S.sending = true; S.error = ''; render();
+          call('POST', '/customer/identify', { property_key: cfg.propertyKey, email: v }).then(function (r) {
+            S.sending = false;
+            if (!r.ok) { S.error = r.message; render(); return; }
+            S.idEmail = v;
+            S.idStep = r.json.data.exists ? 'enter' : 'create';
+            if (r.json.data.locked) S.error = 'Too many wrong PINs. Please wait a little, or use "Forgot PIN".';
+            render();
+          });
+        } }, email, sendBtn);
+      } else {
       body.appendChild(meSay(S.idEmail));
       var isCreate = S.idStep === 'create';
       var isConfirm = S.idStep === 'confirm';
@@ -675,6 +678,7 @@
         h('div', { class: 'hint', text: hintMsg }),
         h('div', { class: 'choice' }, choices)));
       foot = null;
+    }
     }
     return h('div', { style: 'display:flex;flex-direction:column;flex:1;min-height:0' }, body, alerts(), foot);
   }

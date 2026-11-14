@@ -209,7 +209,7 @@ class WidgetChatController extends Controller
             }
         }
 
-        $customerOpenTicket = ($isWaitingSenior && ! $ticketMessageSent) ? null : $openTicket;
+        $customerOpenTicket = $ticketMessageSent ? $openTicket : null;
         $seniorWaitRemaining = ($isWaitingSenior && $conversation->handover_at)
             ? max(0, 60 - (int) now()->diffInSeconds($conversation->handover_at))
             : 0;
@@ -774,7 +774,7 @@ class WidgetChatController extends Controller
             && ! $ticketMessageSent;
 
         $openTicket = Ticket::where('open_conversation_id', $conversation->id)->first();
-        $data['open_ticket'] = ($isWaitingSenior && ! $ticketMessageSent) ? null : $openTicket?->toCustomerArray();
+        $data['open_ticket'] = $ticketMessageSent ? $openTicket?->toCustomerArray() : null;
         $data['ai_pending'] = $conversation->ai_pending_since !== null;
         $data['waiting_senior'] = $isWaitingSenior && ! $ticketMessageSent;
         $data['senior_wait_remaining'] = ($isWaitingSenior && $conversation->handover_at)
