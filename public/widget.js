@@ -642,10 +642,15 @@
       if (isConfirm) {
         choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'create'; S.createPin = ''; S.error = ''; render(); } }, 'Re-enter PIN'));
       }
-      choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'email'; S.createPin = ''; S.error = ''; render(); } }, 'Use a different email'));
       if (isEnter) {
         choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.screen = 'forgot'; S.forgotEmail = S.idEmail; S.error = ''; render(); } }, 'Forgot PIN?'));
+        choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'create'; S.createPin = ''; S.error = ''; render(); } }, 'Create a new PIN'));
       }
+      if (isCreate) {
+        choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'enter'; S.error = ''; render(); } }, 'Already have a PIN? Enter it'));
+        choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.screen = 'forgot'; S.forgotEmail = S.idEmail; S.error = ''; render(); } }, 'Forgot PIN?'));
+      }
+      choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'email'; S.createPin = ''; S.error = ''; render(); } }, 'Use a different email'));
 
       body.appendChild(h('div', { class: 'idcard' },
         h('h4', { text: cardTitle }),
@@ -721,7 +726,7 @@
   function pinInput(placeholder) {
     return h('input', { type: 'password', inputmode: 'numeric', pattern: '[0-9]{6}', maxlength: '6', minlength: '6', autocomplete: 'off', placeholder: placeholder, 'aria-label': placeholder, required: true });
   }
-  function backLink() { return h('button', { class: 'link', type: 'button', onclick: function () { S.screen = S.conversation ? 'chat' : 'start'; S.error = ''; S.notice = ''; render(); } }, '← Back'); }
+  function backLink() { return h('button', { class: 'link', type: 'button', onclick: function () { S.screen = S.conversation ? 'chat' : (S.customer ? 'start' : 'identify'); S.error = ''; S.notice = ''; render(); } }, '← Back'); }
 
   function forgotForm() {
     var email = h('input', { type: 'email', required: true, placeholder: 'you@example.com', 'aria-label': 'E-mail', maxlength: '255', value: S.forgotEmail || S.idEmail || '' });
