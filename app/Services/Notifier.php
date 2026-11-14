@@ -46,6 +46,64 @@ class Notifier
         ]));
     }
 
+    public static function chatStarted(Conversation $conversation, ?Message $firstMessage = null): void
+    {
+        $conversation->loadMissing(['property.tenant', 'visitor', 'customerAccount', 'department']);
+        $tenantId = $conversation->property?->tenant_id;
+        if (! $tenantId) {
+            return;
+        }
+
+        $customerId = $conversation->customer_account_id;
+        $visitorId = $conversation->visitor_id;
+        $propId = $conversation->property_id;
+
+        $baseQuery = Conversation::where('property_id', $propId)
+            ->where(function ($q) use ($customerId, $visitorId) {
+                if ($customerId) {
+                    $q->where('customer_account_id', $customerId)->orWhere('visitor_id', $visitorId);
+                } else {
+                    $q->where('visitor_id', $visitorId);
+                }
+            });
+
+        $totalChats = (clone $baseQuery)->count();
+        $monthChats = (clone $baseQuery)->where('created_at', '>=', now()->startOfMonth())->count();
+
+        $ordinal = match ($totalChats) {
+            1 => 'first chat',
+            2 => '2nd chat',
+            3 => '3rd chat',
+            default => "{$totalChats}th chat",
+        };
+
+        $email = $conversation->customerAccount?->email ?: $conversation->visitor?->email;
+        $name = $conversation->visitor?->name;
+        $username = $email ? (explode('@', $email)[0] ?: $email) : ($name ?: 'Visitor');
+        $deptName = $conversation->department?->name ?? 'General Support';
+        $propName = $conversation->property?->site_name ?? 'Live Chat';
+        $text = $firstMessage?->content ?? 'Started a new live chat';
+
+        $title = 'Urgent Action Needed';
+        $body = "{$username} ({$ordinal}) needs support on {$propName} live chat";
+
+        self::toUsers(self::staffFor($conversation->property), 'chat.started', $title, $body, ['conversation_id' => $conversation->id]);
+
+        $telegramLines = [
+            '🚨 Urgent Action Needed',
+            '',
+            "{$username} ({$ordinal}) needs support on {$propName} live chat",
+            '',
+            '📧 Email: ' . ($email ?: 'Not provided'),
+            "📊 Chats this month: {$monthChats} (Total: {$totalChats})",
+            "🏢 Department: {$deptName}",
+            '💬 Message: ' . mb_substr($text, 0, 500),
+            '🔗 Open: ' . url('/app/inbox?id=' . $conversation->id),
+        ];
+
+        self::telegram($tenantId, 'chat.started', implode("\n", $telegramLines));
+    }
+
     public static function humanRequested(Conversation $conversation): void
     {
         // Security (logic F7): at most one "wants a human" alert per conversation every 10 minutes,
@@ -232,6 +290,44 @@ class Notifier
         });
 
         return $sent;
+    }
+
+    /** 30-minute reminder for unresolved pending tickets until the team responds. */
+    public static function checkPendingTicketReminders(): int
+    {
+        $count = 0;
+        $pendingTickets = Ticket::whereIn('status', ['unassigned', 'open', 'in_progress', 'pending_customer'])
+            ->where('created_at', '<=', now()->subMinutes(30))
+            ->where(function ($q) {
+                $q->whereNull('last_reminded_at')
+                    ->orWhere('last_reminded_at', '<=', now()->subMinutes(30));
+            })
+            ->with(['property.tenant'])
+            ->get()
+            ->groupBy('tenant_id');
+
+        foreach ($pendingTickets as $tenantId => $tickets) {
+            $ticketLines = $tickets->take(10)->map(function ($t) {
+                $mins = round($t->created_at->diffInMinutes(now()));
+
+                return "• {$t->reference} — {$t->subject} (waiting {$mins}m)";
+            })->implode("\n");
+
+            $tenantName = $tickets->first()?->property?->tenant?->name ?? 'Company';
+            $msg = implode("\n", [
+                '⚠️ Pending Support Tickets Alert (>30 mins without resolution)',
+                "Company: {$tenantName}",
+                $ticketLines,
+                '',
+                '🔗 Open tickets: ' . url('/app/tickets'),
+            ]);
+
+            self::telegram($tenantId, 'tickets.reminders', $msg);
+            Ticket::whereIn('id', $tickets->pluck('id'))->update(['last_reminded_at' => now()]);
+            $count += $tickets->count();
+        }
+
+        return $count;
     }
 
     /** Retry failed Telegram deliveries with exponential backoff. */

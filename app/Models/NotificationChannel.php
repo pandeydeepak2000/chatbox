@@ -11,13 +11,15 @@ class NotificationChannel extends Model
     use HasUuids;
 
     public const EVENTS = [
+        'chat.started' => 'Live chat started (customer waiting)',
         'ticket.created' => 'New ticket created',
-        'human.requested' => 'Customer asked for a human',
+        'human.requested' => 'Customer asked for senior department',
         'sales.inquiry' => 'New sales enquiry',
         'sales.overdue' => 'Sales enquiry waiting > 30 working minutes',
         'ticket.assigned' => 'Ticket assigned to staff',
         'ticket.reopened' => 'Customer replied to a resolved ticket',
         'tickets.pending_digest' => 'Daily 10 AM pending ticket digest',
+        'tickets.reminders' => 'Pending ticket reminders (every 30 minutes)',
         'ai.budget' => 'AI budget alerts (80% / limit reached)',
     ];
 

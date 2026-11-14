@@ -25,8 +25,9 @@ Artisan::command('chatbox:reminders', function () {
     $sent = Notifier::sendDueReminders();
     $sla = Notifier::checkSalesFirstResponse();
     $retried = Notifier::retryFailedDeliveries();
+    $ticketReminders = Notifier::checkPendingTicketReminders();
     Cache::put('chatbox:scheduler_heartbeat', now()->toIso8601String(), now()->addDay());
-    $this->info("reminders={$sent} sales_alerts={$sla} telegram_retries={$retried}");
+    $this->info("reminders={$sent} sales_alerts={$sla} ticket_reminders={$ticketReminders} telegram_retries={$retried}");
 })->purpose('Send due task reminders, sales 30-working-minute alerts and retry failed Telegram deliveries');
 
 Artisan::command('chatbox:daily-digest', function () {

@@ -30,8 +30,8 @@
 
   var S = {
     open: false, tab: 'chat', screen: 'loading', property: null, visitor: null, customer: null,
-    conversation: null, messages: [], lastSeq: 0, departments: [], faqs: [], identityMode: 'guest_only',
-    sessionTimeoutMinutes: 30,
+    conversation: null, messages: [], lastSeq: 0, departments: [], faqs: [], identityMode: 'pin_optional',
+    sessionTimeoutMinutes: 10, chosenDeptId: null, chosenDeptName: null,
     tickets: [], conversations: [], aiPending: false, handler: 'ai', openTicket: null, status: null,
     unread: 0, lastActivity: Date.now(), pollTimer: null, sending: false, error: '', notice: '', forgotEmail: '',
     idStep: 'email', idEmail: '', guestChosen: false,
@@ -96,47 +96,61 @@
       '.jix-bubble-btn{position:fixed;bottom:20px;' + side + ':20px;width:58px;height:58px;border-radius:50%;border:0;background:' + color + ';color:#fff;font-size:26px;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.2);z-index:2147483000;display:flex;align-items:center;justify-content:center}',
       '.jix-bubble-btn:focus-visible{outline:3px solid #93c5fd;outline-offset:3px}',
       '.badge{position:absolute;top:-2px;right:-2px;background:#dc2626;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:2px 6px}',
-      '.panel{position:fixed;bottom:90px;' + side + ':20px;width:380px;max-width:calc(100vw - 24px);height:600px;max-height:calc(100vh - 110px);background:#fff;border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.22);z-index:2147483000;display:flex;flex-direction:column;overflow:hidden;color:#0f172a;font-size:14px;line-height:1.45}',
-      '.head{background:' + color + ';color:#fff;padding:14px 16px;display:flex;align-items:center;gap:10px}',
-      '.head-title{font-weight:700;font-size:15px}.head-sub{font-size:12px;opacity:.9}',
-      '.x{margin-left:auto;background:rgba(255,255,255,.15);border:0;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:16px}',
-      '.tabs{display:flex;border-bottom:1px solid #e2e8f0}.tab{flex:1;padding:10px;border:0;background:#fff;font-weight:600;color:#64748b;cursor:pointer;border-bottom:2px solid transparent}.tab.on{color:' + color + ';border-bottom-color:' + color + '}',
+      '.panel{position:fixed;bottom:90px;' + side + ':20px;width:380px;max-width:calc(100vw - 24px);height:600px;max-height:calc(100vh - 110px);background:#fff;border-radius:18px;box-shadow:0 18px 50px rgba(0,0,0,.25);z-index:2147483000;display:flex;flex-direction:column;overflow:hidden;color:#0f172a;font-size:14px;line-height:1.45}',
+      '.head{background:#0c2b20;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:12px}',
+      '.head-avatar{width:38px;height:38px;border-radius:50%;background:#bef264;color:#14532d;font-weight:800;font-size:17px;display:flex;align-items:center;justify-content:center;flex-shrink:0}',
+      '.head-title{font-weight:700;font-size:15.5px;color:#fff}',
+      '.head-sub{font-size:11.5px;color:rgba(255,255,255,.8);margin-top:1px}',
+      '.x{margin-left:auto;background:transparent;border:0;color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;opacity:.85}',
+      '.x:hover{opacity:1;background:rgba(255,255,255,.12)}',
+      '.tabs{display:flex;background:#0c2b20;padding:0 12px;gap:6px;border-bottom:0}',
+      '.tab{flex:1;padding:10px 14px;border:0;background:transparent;font-weight:600;color:rgba(255,255,255,.75);cursor:pointer;border-radius:12px 12px 0 0;font-size:13.5px;text-align:center;transition:all .15s ease}',
+      '.tab.on{background:#fff;color:#0f172a;font-weight:700}',
       '.body{flex:1;overflow-y:auto;padding:14px;background:#f8fafc}',
       '.foot{border-top:1px solid #e2e8f0;padding:10px;background:#fff}',
       '.msg{display:flex;margin-bottom:10px}.msg.me{justify-content:flex-end}',
-      '.bub{max-width:82%;padding:9px 12px;border-radius:14px;background:#fff;border:1px solid #e2e8f0;white-space:pre-wrap;overflow-wrap:anywhere}',
-      '.me .bub{background:' + color + ';color:#fff;border-color:' + color + '}',
-      '.bot .bub{background:#f5f3ff;border-color:#ddd6fe}',
+      '.bub{max-width:85%;padding:10px 14px;border-radius:16px;background:#fff;border:1px solid #e2e8f0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.45}',
+      '.me .bub{background:#0c2b20;color:#fff;border-color:#0c2b20;border-radius:16px 16px 4px 16px}',
+      '.bot .bub{background:#fff;border-color:#e2e8f0;border-radius:16px 16px 16px 4px;color:#0f172a}',
       '.lbl{font-size:11px;font-weight:700;opacity:.75;margin-bottom:2px}.tm{font-size:10.5px;opacity:.7;margin-top:3px}',
       '.sys{text-align:center;font-size:12px;color:#64748b;margin:8px 0}',
       '.typing{font-size:12.5px;color:#64748b;margin:4px 0 10px}',
       '.row{display:flex;gap:8px;align-items:flex-end}',
       'textarea,input,select{width:100%;border:1px solid #cbd5e1;border-radius:10px;padding:9px 11px;font-size:14px;background:#fff;color:#0f172a}',
       'textarea{resize:none;min-height:42px;max-height:120px}',
-      'textarea:focus,input:focus,select:focus{outline:none;border-color:' + color + ';box-shadow:0 0 0 3px rgba(37,99,235,.15)}',
-      '.btn{border:0;border-radius:10px;padding:10px 14px;font-weight:700;cursor:pointer;background:' + color + ';color:#fff;font-size:14px}',
-      '.btn:disabled{opacity:.6;cursor:not-allowed}.btn.ghost{background:#fff;color:#0f172a;border:1px solid #cbd5e1}.btn.block{width:100%}',
+      'textarea:focus,input:focus,select:focus{outline:none;border-color:#166534;box-shadow:0 0 0 3px rgba(22,101,52,.15)}',
+      '.btn{border:0;border-radius:10px;padding:10px 14px;font-weight:700;cursor:pointer;background:#0c2b20;color:#fff;font-size:14px}',
+      '.btn:disabled{opacity:.6;cursor:not-allowed}.btn.ghost{background:#fff;color:#0f172a;border:1.5px solid #cbd5e1}.btn.block{width:100%}',
       '.btn.sm{padding:6px 10px;font-size:12.5px}',
-      '.link{background:none;border:0;color:' + color + ';font-weight:600;cursor:pointer;padding:4px 0;font-size:13px}',
-      '.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px;margin-bottom:12px}',
+      '.link{background:none;border:0;color:#166534;font-weight:600;cursor:pointer;padding:4px 0;font-size:13px}',
+      '.card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px;margin-bottom:12px}',
       '.card h3{margin:0 0 6px;font-size:15px}.muted{color:#64748b;font-size:12.5px}',
       '.field{margin-bottom:10px}.field label{display:block;font-size:12.5px;font-weight:600;margin-bottom:4px}.hint{font-size:12px;color:#64748b;margin-top:3px}',
       '.err{background:#fef2f2;color:#991b1b;border:1px solid #fecaca;padding:8px 10px;border-radius:8px;font-size:13px;margin-bottom:10px}',
       '.ok{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:8px 10px;border-radius:8px;font-size:13px;margin-bottom:10px}',
       '.banner{background:#fff7ed;color:#9a3412;border-bottom:1px solid #fed7aa;padding:8px 14px;font-size:12.5px}',
       '.item{display:block;width:100%;text-align:left;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer;color:#0f172a;font-size:13.5px}',
-      '.item:hover{border-color:' + color + '}.st{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:1px 8px;background:#eff6ff;color:#1d4ed8;margin-left:6px}',
+      '.item:hover{border-color:#166534}.st{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:1px 8px;background:#eff6ff;color:#1d4ed8;margin-left:6px}',
       '.att{display:block;margin-top:6px;color:inherit;font-weight:600}.att img{max-width:220px;max-height:160px;border-radius:8px;display:block}',
       '.tools{display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap}',
       '.stars button{background:none;border:0;font-size:24px;cursor:pointer;color:#f59e0b}',
       '.faq summary{cursor:pointer;font-weight:600;padding:6px 0}.faq p{margin:4px 0 8px;white-space:pre-wrap}',
       '.pin{display:flex;gap:8px;justify-content:space-between;margin:10px 0 6px}',
       '.pin input{width:44px;height:52px;text-align:center;font-size:22px;font-weight:700;padding:0;border-radius:12px;border:1.5px solid #cbd5e1}',
-      '.pin input:focus{border-color:' + color + '}',
+      '.pin input:focus{border-color:#166534}',
       '.pin.bad input{border-color:#fca5a5;background:#fef2f2}',
       '.idcard{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px;margin:4px 0 10px}',
       '.idcard h4{margin:0;font-size:14.5px}',
       '.choice{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:6px}',
+      '.dept-chips{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 12px}',
+      '.dept-chip{border:1.5px solid #0f172a;border-radius:999px;background:#fff;color:#0f172a;font-weight:600;font-size:13.5px;padding:8px 18px;cursor:pointer;display:inline-block;transition:all .15s ease}',
+      '.dept-chip:hover,.dept-chip.on{background:#0f172a;color:#fff}',
+      '.pill-row{display:flex;gap:8px;align-items:center;background:#fff;border-top:1px solid #e2e8f0;padding:10px 14px}',
+      '.pill-input{border:1.5px solid #166534;border-radius:999px;padding:10px 18px;font-size:14px;background:#fff;color:#0f172a;flex:1}',
+      '.pill-input:focus{outline:none;border-color:#15803d;box-shadow:0 0 0 3px rgba(34,197,94,.15)}',
+      '.pill-send{background:#bef264;color:#14532d;border-radius:999px;padding:10px 22px;font-weight:800;font-size:14px;border:0;cursor:pointer;flex-shrink:0}',
+      '.pill-send:hover{background:#a3e635}',
+      '.pill-send:disabled{opacity:.5;cursor:not-allowed}',
       '.hidden{display:none!important}',
       '@media (max-width:480px){.panel{inset:0;width:100%;max-width:100%;height:100%;max-height:100%;border-radius:0;bottom:0}}',
     ].join('');
@@ -409,14 +423,18 @@
     var oldTop = oldScroller ? oldScroller.scrollTop : 0;
     S.lastViewKey = viewKey;
     var brand = (S.property && ((S.property.widget_config || {}).brand_name || S.property.site_name)) || 'Support';
-    var online = S.status ? (S.status.is_online ? 'Online — we usually reply in minutes' : 'Team offline · ' + (S.status.working_hours || '')) : '';
+    var online = S.status ? (S.status.is_online ? 'Online' : 'Team offline · ' + (S.status.working_hours || '')) : '';
+    var initial = (brand || 'S').trim().charAt(0).toUpperCase();
     panel.replaceChildren(
       h('div', { class: 'head' },
-        h('div', null, h('div', { class: 'head-title', text: /support$/i.test(brand) ? brand : brand + ' Support' }), h('div', { class: 'head-sub', text: online })),
+        h('div', { class: 'head-avatar', text: initial }),
+        h('div', { style: 'flex:1;min-width:0' },
+          h('div', { class: 'head-title', text: brand }),
+          online ? h('div', { class: 'head-sub', text: online }) : null),
         h('button', { class: 'x', 'aria-label': 'Close chat', onclick: function () { toggle(false); } }, '✕')),
       h('div', { class: 'tabs', role: 'tablist' },
-        h('button', { class: 'tab' + (S.tab === 'chat' ? ' on' : ''), role: 'tab', 'aria-selected': S.tab === 'chat' ? 'true' : 'false', onclick: function () { S.tab = 'chat'; render(); } }, 'Live Chat'),
-        h('button', { class: 'tab' + (S.tab === 'tickets' ? ' on' : ''), role: 'tab', 'aria-selected': S.tab === 'tickets' ? 'true' : 'false', onclick: function () { S.tab = 'tickets'; if (S.customer) refreshCustomer(); render(); } }, 'Support Tickets')),
+        h('button', { class: 'tab' + (S.tab === 'chat' ? ' on' : ''), role: 'tab', 'aria-selected': S.tab === 'chat' ? 'true' : 'false', onclick: function () { S.tab = 'chat'; render(); } }, 'Chat'),
+        h('button', { class: 'tab' + (S.tab === 'tickets' ? ' on' : ''), role: 'tab', 'aria-selected': S.tab === 'tickets' ? 'true' : 'false', onclick: function () { S.tab = 'tickets'; if (S.customer) refreshCustomer(); render(); } }, 'Tickets')),
       S.tab === 'tickets' ? ticketsView() : chatTab()
     );
     var scroller = panel.querySelector('.scroll');
@@ -486,18 +504,50 @@
   }
 
   function identifyView() {
-    var welcome = ((S.property || {}).widget_config || {}).welcome_message || 'Hello! How can we help you today?';
+    var welcome = ((S.property || {}).widget_config || {}).welcome_message || 'Namaste! 👋 How can we help you today?';
     var body = h('div', { class: 'body scroll', 'aria-live': 'polite' });
     body.appendChild(botSay(welcome));
-    body.appendChild(botSay('Please share your e-mail address so we can keep your chats and tickets together.'));
+
+    if (S.departments && S.departments.length > 0) {
+      var chipWrap = h('div', { class: 'dept-chips' });
+      S.departments.forEach(function (d) {
+        var on = S.chosenDeptId === d.id;
+        chipWrap.appendChild(h('button', {
+          type: 'button',
+          class: 'dept-chip' + (on ? ' on' : ''),
+          onclick: function () {
+            S.chosenDeptId = d.id;
+            S.chosenDeptName = d.name;
+            render();
+          }
+        }, d.name));
+      });
+      body.appendChild(chipWrap);
+    }
+
+    if (S.chosenDeptName) {
+      body.appendChild(meSay(S.chosenDeptName));
+    }
+
+    body.appendChild(botSay('Please share your email address.'));
     var foot = null;
 
     if (S.idStep === 'email' || !S.idEmail) {
-      var email = h('input', { type: 'email', required: true, placeholder: 'you@example.com', 'aria-label': 'E-mail', maxlength: '255', autocomplete: 'email', value: S.idEmail || '' });
-      foot = h('form', { class: 'foot', onsubmit: function (e) {
+      var email = h('input', {
+        type: 'email',
+        required: true,
+        placeholder: 'you@example.com',
+        'aria-label': 'E-mail',
+        maxlength: '255',
+        autocomplete: 'email',
+        class: 'pill-input',
+        value: S.idEmail || ''
+      });
+      var sendBtn = h('button', { class: 'pill-send', type: 'submit', disabled: S.sending }, S.sending ? '…' : 'Send');
+      foot = h('form', { class: 'pill-row', onsubmit: function (e) {
         e.preventDefault();
         var v = email.value.trim();
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { S.error = 'Please enter a valid e-mail address.'; render(); return; }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { S.error = 'Please enter a valid email address.'; render(); return; }
         S.sending = true; S.error = ''; render();
         call('POST', '/customer/identify', { property_key: cfg.propertyKey, email: v }).then(function (r) {
           S.sending = false;
@@ -507,73 +557,92 @@
           if (r.json.data.locked) S.error = 'Too many wrong PINs. Please wait a little, or use "Forgot PIN".';
           render();
         });
-      } }, alerts(),
-        h('div', { class: 'row' }, email, h('button', { class: 'btn', type: 'submit', disabled: S.sending }, S.sending ? '…' : 'Continue')),
-        S.identityMode === 'pin_optional' && !S.conversation ? h('div', { class: 'choice' }, h('span', { class: 'muted', text: 'Just a quick question?' }),
-          h('button', { class: 'link', type: 'button', onclick: function () { S.guestChosen = true; S.screen = 'start'; S.error = ''; render(); } }, 'Continue without e-mail')) : null,
-        S.conversation ? h('button', { class: 'link', type: 'button', onclick: function () { S.screen = 'chat'; S.error = ''; render(); } }, '← Back to chat') : null);
+      } }, email, sendBtn);
     } else {
       body.appendChild(meSay(S.idEmail));
       var creating = S.idStep === 'create';
       body.appendChild(botSay(creating
-        ? 'Set a 6-digit Support PIN. Next time, your e-mail + this PIN opens all your chats and tickets on any device.'
-        : 'Welcome back! Enter your 6-digit Support PIN to continue where you left off.'));
+        ? 'Set a 6-digit Chat PIN. Next time, your email + this PIN opens all your chats and tickets.'
+        : 'Welcome back! Enter your 6-digit Chat PIN to continue where you left off.'));
       body.appendChild(h('div', { class: 'idcard' },
-        h('h4', { text: creating ? 'Create your Support PIN' : 'Enter your Support PIN' }),
+        h('h4', { text: creating ? 'Create Chat PIN' : 'Enter Chat PIN' }),
         pinBoxes(function (pin) { customerAuth(creating ? 'signup' : 'login', { email: S.idEmail, pin: pin }); }),
-        h('div', { class: 'hint', text: creating ? '6 digits, numbers only. Avoid easy PINs like 123456. We never ask for your PIN by phone or e-mail.' : (S.sending ? 'Checking…' : '6 digits, numbers only.') }),
+        h('div', { class: 'hint', text: creating ? '6 digits, numbers only. Keep it safe.' : (S.sending ? 'Checking…' : '6 digits, numbers only.') }),
         h('div', { class: 'choice' },
-          h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'email'; S.error = ''; render(); } }, 'Use a different e-mail'),
+          h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'email'; S.error = ''; render(); } }, 'Use a different email'),
           creating ? null : h('button', { class: 'link', type: 'button', onclick: function () { S.screen = 'forgot'; S.forgotEmail = S.idEmail; S.error = ''; render(); } }, 'Forgot PIN?'))));
       foot = h('div', { class: 'foot' }, alerts());
     }
-    return h('div', { style: 'display:flex;flex-direction:column;flex:1;min-height:0' }, body, foot);
+    return h('div', { style: 'display:flex;flex-direction:column;flex:1;min-height:0' }, alerts(), body, foot);
   }
 
   function startView() {
-    var needPin = S.identityMode === 'pin_required' && !S.customer;
-    var welcome = ((S.property || {}).widget_config || {}).welcome_message || 'Hello! How can we help you today?';
-    var nodes = [alerts()];
-    if (S.status && !S.status.is_online && S.status.offline_notice) nodes.push(h('div', { class: 'card muted', text: S.status.offline_notice }));
-    if (S.customer) {
-      nodes.push(h('div', { class: 'card' },
-        h('div', { class: 'muted', text: 'Signed in as ' + S.customer.email }),
-        S.conversations.length ? h('div', null, h('h3', { text: 'Your previous chats' }), S.conversations.slice(0, 5).map(function (c) {
-          return h('button', { class: 'item', onclick: function () { openConversation(c.id); } }, h('div', { text: c.preview || 'Conversation' }), h('div', { class: 'muted', text: new Date(c.last_message_at || c.created_at).toLocaleString() }));
-        })) : null,
-        h('button', { class: 'link', onclick: logout }, 'Sign out')));
+    if (!S.customer && S.identityMode !== 'guest_only' && !S.guestChosen) {
+      return identifyView();
     }
-    if (needPin) {
-      nodes.push(h('div', { class: 'card' }, h('h3', { text: 'Welcome' }), h('p', { class: 'muted', text: 'Use your e-mail and a Support PIN so your chats and tickets are saved.' }),
-        h('button', { class: 'btn block', onclick: function () { S.screen = 'signup'; S.error = ''; render(); } }, 'Start new support'),
-        h('div', { style: 'height:8px' }),
-        h('button', { class: 'btn ghost block', onclick: function () { S.screen = 'signin'; S.error = ''; render(); } }, 'Continue Previous Support')));
-    } else {
-      var msg = h('textarea', { rows: '3', placeholder: 'How can we help? *', 'aria-label': 'Your question', maxlength: '2000' });
-      var name = h('input', { placeholder: 'Your name', 'aria-label': 'Your name', maxlength: '255', value: (S.visitor && S.visitor.name) || '' });
-      var email = h('input', { type: 'email', placeholder: 'E-mail (so we can reply)', 'aria-label': 'Your e-mail', maxlength: '255', value: (S.visitor && S.visitor.email) || '' });
-      var dept = S.departments.length > 1 ? h('select', { 'aria-label': 'Department' }, h('option', { value: '', text: 'Choose a department (optional)' }), S.departments.map(function (d) { return h('option', { value: d.id, text: d.name }); })) : null;
-      nodes.push(h('form', { class: 'card', onsubmit: function (e) {
-        e.preventDefault();
-        if (!msg.value.trim()) { S.error = 'Please type your question.'; render(); return; }
-        startChat(msg.value.trim(), { name: name.value.trim() || undefined, email: email.value.trim() || undefined, department_id: dept && dept.value ? dept.value : undefined });
-      } },
-        h('h3', { text: 'Start a conversation' }), h('p', { class: 'muted', text: welcome }),
-        S.customer ? null : h('div', { class: 'field' }, name), S.customer ? null : h('div', { class: 'field' }, email),
-        dept ? h('div', { class: 'field' }, dept) : null,
-        h('div', { class: 'field' }, msg),
-        h('button', { class: 'btn block', type: 'submit', disabled: S.sending }, S.sending ? 'Starting…' : 'Start chat')));
-      if (!S.customer && S.identityMode !== 'guest_only') {
-        nodes.push(h('div', { class: 'card' }, h('div', { class: 'muted', text: 'Have a Support PIN to view your previous chats and tickets?' }),
-          h('button', { class: 'link', onclick: function () { S.screen = 'signin'; S.error = ''; render(); } }, 'Sign in with e-mail & PIN')));
-      }
+    var welcome = ((S.property || {}).widget_config || {}).welcome_message || 'Namaste! 👋 How can we help you today?';
+    var body = h('div', { class: 'body scroll', 'aria-live': 'polite' });
+    body.appendChild(botSay(welcome));
+
+    if (S.departments && S.departments.length > 0) {
+      var chipWrap = h('div', { class: 'dept-chips' });
+      S.departments.forEach(function (d) {
+        var on = S.chosenDeptId === d.id;
+        chipWrap.appendChild(h('button', {
+          type: 'button',
+          class: 'dept-chip' + (on ? ' on' : ''),
+          onclick: function () {
+            S.chosenDeptId = d.id;
+            S.chosenDeptName = d.name;
+            render();
+          }
+        }, d.name));
+      });
+      body.appendChild(chipWrap);
     }
-    if (S.faqs.length) {
-      nodes.push(h('div', { class: 'card faq' }, h('h3', { text: 'Quick answers' }), S.faqs.slice(0, 8).map(function (f) {
-        return h('details', null, h('summary', { text: f.question }), h('p', { text: f.answer }));
-      })));
+    if (S.chosenDeptName) {
+      body.appendChild(meSay(S.chosenDeptName));
     }
-    return h('div', { class: 'body' }, nodes);
+
+    if (S.conversations && S.conversations.length > 0) {
+      body.appendChild(h('div', { class: 'card' },
+        h('h3', { text: 'Your previous chats' }),
+        S.conversations.slice(0, 3).map(function (c) {
+          return h('button', { class: 'item', onclick: function () { openConversation(c.id); } },
+            h('div', { text: c.preview || 'Conversation' }),
+            h('div', { class: 'muted', text: new Date(c.last_message_at || c.created_at).toLocaleString() }));
+        })));
+    }
+
+    if (S.faqs && S.faqs.length > 0) {
+      body.appendChild(h('div', { class: 'card faq' },
+        h('h3', { text: 'Quick answers' }),
+        S.faqs.slice(0, 4).map(function (f) {
+          return h('details', null, h('summary', { text: f.question }), h('p', { text: f.answer }));
+        })));
+    }
+
+    var msgInput = h('input', {
+      type: 'text',
+      required: true,
+      placeholder: 'Type your message…',
+      'aria-label': 'Your message',
+      class: 'pill-input'
+    });
+    var sendBtn = h('button', { class: 'pill-send', type: 'submit', disabled: S.sending }, S.sending ? '…' : 'Send');
+    var foot = h('form', { class: 'pill-row', onsubmit: function (e) {
+      e.preventDefault();
+      var t = msgInput.value.trim();
+      if (!t) return;
+      msgInput.value = '';
+      startChat(t, { email: S.customer ? S.customer.email : (S.idEmail || undefined), department_id: S.chosenDeptId || undefined });
+    } }, msgInput, sendBtn);
+
+    var userBar = S.customer ? h('div', { style: 'display:flex;justify-content:space-between;align-items:center;padding:6px 14px;background:#f1f5f9;font-size:12px;color:#64748b;border-top:1px solid #e2e8f0;' },
+      h('span', { text: 'Signed in as ' + S.customer.email }),
+      h('button', { class: 'link', type: 'button', onclick: logout }, 'Sign out')) : null;
+
+    return h('div', { style: 'display:flex;flex-direction:column;flex:1;min-height:0' }, alerts(), body, userBar, foot);
   }
 
   function pinInput(placeholder) {
@@ -619,8 +688,6 @@
       onkeydown: function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } } });
     function submit() { var t = input.value.trim(); if (!t) return; input.value = ''; S.error = ''; sendMessage(t); }
     var file = h('input', { type: 'file', class: 'hidden', accept: 'image/*,.pdf,.txt,.doc,.docx,.zip', onchange: function () { if (file.files[0]) upload(file.files[0]); } });
-    var human = h('button', { class: 'btn ghost sm', onclick: function () { talkToHuman(human); } }, S.handler === 'human' ? 'Our team is handling this' : 'Talk to a human');
-    if (S.handler === 'human') human.disabled = true;
     var attachOn = !S.status || S.status.attachments_enabled !== false;
 
     var csat = null;
@@ -633,10 +700,10 @@
     }
 
     return h('div', { style: 'display:flex;flex-direction:column;flex:1;min-height:0' },
-      S.openTicket ? h('div', { class: 'banner', text: 'Ticket ' + S.openTicket.reference + ' · ' + S.openTicket.status_label + ' — replies appear here and under Support Tickets.' }) : null,
+      S.openTicket ? h('div', { class: 'banner', text: 'Ticket ' + S.openTicket.reference + ' · ' + S.openTicket.status_label + ' — replies appear here and under Tickets.' }) : null,
       body,
       h('div', { class: 'foot' }, alerts(), csat,
-        h('div', { class: 'tools' }, human,
+        h('div', { class: 'tools' },
           attachOn ? h('button', { class: 'btn ghost sm', onclick: function () { file.click(); }, 'aria-label': 'Attach a file' }, 'Attach') : null, file,
           h('button', { class: 'link', onclick: function () { S.conversation = null; S.messages = []; S.screen = 'start'; S.notice = ''; render(); } }, 'New chat')),
         h('div', { class: 'row' }, input, h('button', { class: 'btn', onclick: submit, 'aria-label': 'Send' }, 'Send'))));
@@ -645,8 +712,8 @@
   function ticketsView() {
     if (!S.customer) {
       return h('div', { class: 'body' }, alerts(), h('div', { class: 'card' }, h('h3', { text: 'My tickets' }),
-        h('p', { class: 'muted', text: 'Sign in with your e-mail and Support PIN to see your tickets and our replies.' }),
-        S.identityMode !== 'guest_only' ? h('button', { class: 'btn block', onclick: function () { S.tab = 'chat'; S.screen = 'identify'; S.idStep = 'email'; render(); } }, 'Sign in with e-mail & PIN') : null));
+        h('p', { class: 'muted', text: 'Sign in with your email and Chat PIN to see your tickets and our replies.' }),
+        S.identityMode !== 'guest_only' ? h('button', { class: 'btn block', onclick: function () { S.tab = 'chat'; S.screen = 'identify'; S.idStep = 'email'; render(); } }, 'Sign in with email & PIN') : null));
     }
     return h('div', { class: 'body' }, alerts(),
       h('div', { class: 'muted', text: 'Signed in as ' + S.customer.email }),

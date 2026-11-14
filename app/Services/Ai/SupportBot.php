@@ -50,14 +50,14 @@ class SupportBot
 
     private const T = [
         'human_live' => [
-            'en' => '🤝 I have asked our support team to join this chat. Please stay here — a team member will reply shortly.',
-            'hi' => '🤝 मैंने हमारी सपोर्ट टीम को इस चैट में बुलाया है। कृपया यहीं रहें — टीम का सदस्य जल्द ही जवाब देगा।',
-            'hi-Latn' => '🤝 Maine hamari support team ko is chat mein bula liya hai. Please yahin rahiye — team member jaldi reply karenge.',
+            'en' => "Please wait, I am checking your request...\n\nWe are transferring your chat to our senior department. Please wait for 1 minute.",
+            'hi' => "कृपया प्रतीक्षा करें, मैं आपके अनुरोध की जांच कर रहा हूँ...\n\nहम आपकी चैट को हमारे सीनियर डिपार्टमेंट में ट्रांसफर कर रहे हैं। कृपया 1 मिनट प्रतीक्षा करें।",
+            'hi-Latn' => "Please wait, main aapki request check kar raha hoon...\n\nHum aapki chat senior department ko transfer kar rahe hain. Please 1 minute wait karein.",
         ],
         'ticket_created' => [
-            'en' => "I can't reliably resolve this here, so I've passed it to our team as ticket {ref}. You'll see their reply in this chat and under \"My Tickets\".",
-            'hi' => 'मैं इसे यहाँ भरोसेमंद तरीके से हल नहीं कर सकता, इसलिए मैंने इसे टिकट {ref} के रूप में हमारी टीम को भेज दिया है। जवाब इसी चैट और "My Tickets" में दिखेगा।',
-            'hi-Latn' => 'Main isse yahan reliably solve nahi kar sakta, isliye maine ise ticket {ref} ke roop mein team ko bhej diya hai. Reply isi chat aur "My Tickets" mein dikhega.',
+            'en' => "Your request has been registered as ticket {ref}. Our team will reply within 1 to 2 hours. You can sign in anytime with your email & PIN to track updates.",
+            'hi' => 'आपका अनुरोध टिकट {ref} के रूप में दर्ज कर लिया गया है। हमारी टीम 1 से 2 घंटे के भीतर जवाब देगी। आप अपडेट देखने के लिए कभी भी अपने ईमेल और पिन से साइन इन कर सकते हैं।',
+            'hi-Latn' => 'Aapki request ticket {ref} ke roop mein register ho gayi hai. Hamari team 1 se 2 ghante mein reply karegi. Aap updates dekhne ke liye kisi bhi time email aur PIN se sign in kar sakte hain.',
         ],
         'ticket_existing' => [
             'en' => 'Your request is already with our team as ticket {ref}. They will reply in this chat.',
@@ -65,14 +65,14 @@ class SupportBot
             'hi-Latn' => 'Aapki request pehle se ticket {ref} ke roop mein team ke paas hai. Woh isi chat mein reply karenge.',
         ],
         'ticket_failed' => [
-            'en' => "Sorry — I couldn't create a support ticket right now. Please tap \"Talk to a human\" to try again, or leave your e-mail and question here.",
-            'hi' => 'क्षमा करें — अभी सपोर्ट टिकट नहीं बन पाया। कृपया दोबारा कोशिश करने के लिए "Talk to a human" दबाएँ।',
-            'hi-Latn' => 'Sorry — abhi support ticket create nahi ho paaya. Dobara try karne ke liye "Talk to a human" dabaiye.',
+            'en' => "Sorry — could not create a ticket right now. Please leave your message and email here.",
+            'hi' => 'क्षमा करें — अभी टिकट नहीं बन पाया। कृपया अपना मैसेज और ईमेल यहाँ छोड़ दें।',
+            'hi-Latn' => 'Sorry — abhi ticket create nahi ho paaya. Please apna message aur email yahan chhod dein.',
         ],
         'restricted' => [
-            'en' => "I can't handle {action} in chat — that has to be done by our team.",
-            'hi' => 'मैं चैट में {action} नहीं कर सकता — यह काम हमारी टीम ही करेगी।',
-            'hi-Latn' => 'Main chat mein {action} handle nahi kar sakta — yeh kaam hamari team hi karegi.',
+            'en' => "I can't handle {action} in chat — our senior department will assist you.",
+            'hi' => 'मैं चैट में {action} नहीं कर सकता — हमारा सीनियर डिपार्टमेंट आपकी सहायता करेगा।',
+            'hi-Latn' => 'Main chat mein {action} handle nahi kar sakta — hamara senior department aapki help karega.',
         ],
         'clarify' => [
             'en' => 'Could you share a bit more detail — for example the domain or service involved and what you see (error message, step where it fails)?',
@@ -85,9 +85,9 @@ class SupportBot
             'hi-Latn' => 'Hamari team roz {hours} IST kaam karti hai; woh {next} se reply karenge.',
         ],
         'faq_footer' => [
-            'en' => "\n\n💡 Need a person? Reply \"Talk to agent\" anytime.",
-            'hi' => "\n\n💡 किसी व्यक्ति से बात करनी है? कभी भी \"Talk to agent\" लिखें।",
-            'hi-Latn' => "\n\n💡 Kisi insaan se baat karni hai? Kabhi bhi \"Talk to agent\" likhiye.",
+            'en' => '',
+            'hi' => '',
+            'hi-Latn' => '',
         ],
     ];
 

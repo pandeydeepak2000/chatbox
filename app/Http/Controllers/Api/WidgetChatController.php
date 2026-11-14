@@ -116,8 +116,8 @@ class WidgetChatController extends Controller
                 'property' => [
                     'id' => $property->id,
                     'site_name' => $property->site_name,
-                    'identity_mode' => $property->identity_mode ?? 'guest_only',
-                    'session_timeout_minutes' => (int) ($property->tenant?->settings['session_timeout_minutes'] ?? 30),
+                    'identity_mode' => $property->identity_mode ?: 'pin_optional',
+                    'session_timeout_minutes' => (int) ($property->tenant?->settings['session_timeout_minutes'] ?? 10),
                     'widget_config' => $property->publicWidgetConfig(),
                 ],
                 'customer' => $customer ? ['id' => $customer->id, 'email' => $customer->email, 'email_verified' => $customer->isVerified()] : null,
@@ -179,6 +179,29 @@ class WidgetChatController extends Controller
             $assignedAgent = ['id' => $agent->id, 'name' => $agent->name, 'role' => $agent->role, 'avatar' => strtoupper(substr($agent->name, 0, 2))];
         }
         $openTicket = Ticket::where('open_conversation_id', $conversation->id)->first();
+
+        // 1-minute timeout: if transferred to senior department and team has not replied in 60s, auto-create ticket
+        if (! $openTicket
+            && $conversation->handler === 'human'
+            && ! $conversation->first_human_response_at
+            && $conversation->handover_at
+            && $conversation->handover_at->lte(now()->subSeconds(60))) {
+            try {
+                [$ticket, $created] = TicketService::createOrReuse($conversation, ['source' => 'transfer_timeout']);
+                if ($created) {
+                    $lang = $conversation->language ?? 'en';
+                    SupportBot::botReply($conversation, SupportBot::t('ticket_created', $lang, ['ref' => $ticket->reference]), ['source' => 'ticket', 'ticket_id' => $ticket->id], true);
+                    $openTicket = $ticket;
+                    $query = $conversation->messages()->visibleToCustomer();
+                    if ($afterSeq !== null && is_numeric($afterSeq)) {
+                        $query->where('seq', '>', (int) $afterSeq);
+                    }
+                    $newMessages = $query->take(50)->get();
+                }
+            } catch (\Throwable $e) {
+                Log::warning('1-minute senior department ticket creation fallback: ' . $e->getMessage());
+            }
+        }
 
         return response()->json([
             'success' => true,
@@ -337,6 +360,8 @@ class WidgetChatController extends Controller
         $department = $departmentId ? Department::find($departmentId) : null;
         if ($department && str_contains(mb_strtolower($department->name), 'sales')) {
             Notifier::salesInquiry($conversation);
+        } else {
+            Notifier::chatStarted($conversation, $message);
         }
 
         $botReply = SupportBot::handle($conversation, $message);
@@ -596,7 +621,7 @@ class WidgetChatController extends Controller
             'offline_notice' => $config['operating_hours']['offline_notice'] ?? "Our team works {$cfg['start']}–{$cfg['end']} IST every day. Leave your message and we will reply in this chat — you can also follow it under \"My Tickets\".",
             'csat_enabled' => $config['csat_enabled'] ?? true,
             'attachments_enabled' => $config['attachments_enabled'] ?? true,
-            'identity_mode' => $property->identity_mode ?? 'guest_only',
+            'identity_mode' => $property->identity_mode ?: 'pin_optional',
         ]);
     }
 
