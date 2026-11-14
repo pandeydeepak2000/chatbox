@@ -456,7 +456,7 @@
     var active = root.activeElement;
     var focusedName = active && active.getAttribute('aria-label');
     var caret = active && typeof active.selectionStart === 'number' ? [active.selectionStart, active.selectionEnd] : null;
-    var viewKey = S.tab + '|' + S.screen;
+    var viewKey = S.tab + '|' + S.screen + '|' + (S.idStep || '');
     var typed = {};
     if (viewKey === S.lastViewKey) {
       panel.querySelectorAll('input[aria-label], textarea[aria-label]').forEach(function (el) { if (el.type !== 'file' && el.value) typed[el.getAttribute('aria-label')] = el.value; });
@@ -514,6 +514,7 @@
 
   function pinBoxes(onComplete) {
     var boxes = [];
+    var showing = false;
     var wrap = h('div', { class: 'pin' + (S.error ? ' bad' : ''), role: 'group', 'aria-label': 'Chat PIN' });
     function value() { return boxes.map(function (b) { return b.value; }).join(''); }
     function check() { var v = value(); if (/^[0-9]{6}$/.test(v)) onComplete(v); }
@@ -541,8 +542,20 @@
         wrap.appendChild(b);
       })(i);
     }
+
+    var toggleBtn = h('button', {
+      type: 'button',
+      class: 'link',
+      style: 'font-size:12px;margin-top:6px;color:#64748b;cursor:pointer;background:none;border:none;padding:2px 4px;',
+      onclick: function () {
+        showing = !showing;
+        boxes.forEach(function (b) { b.type = showing ? 'text' : 'password'; });
+        toggleBtn.textContent = showing ? '🙈 Hide PIN' : '👁️ Show PIN';
+      }
+    }, '👁️ Show PIN');
+
     setTimeout(function () { var first = boxes.filter(function (b) { return !b.value; })[0]; if (first && root.activeElement !== first) first.focus(); }, 0);
-    return wrap;
+    return h('div', { style: 'display:flex;flex-direction:column;align-items:center;' }, wrap, toggleBtn);
   }
 
   function identifyView() {
@@ -624,33 +637,37 @@
         } else if (isCreate) {
           S.createPin = pin;
           S.idStep = 'confirm';
+          S.clearPin = true;
           S.error = '';
           render();
+          S.clearPin = false;
         } else if (isConfirm) {
           if (pin === S.createPin) {
             customerAuth('signup', { email: S.idEmail, pin: pin });
           } else {
             S.createPin = '';
             S.idStep = 'create';
+            S.clearPin = true;
             S.error = 'PINs do not match. Please enter your PIN again.';
             render();
+            S.clearPin = false;
           }
         }
       };
 
       var choices = [];
       if (isConfirm) {
-        choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'create'; S.createPin = ''; S.error = ''; render(); } }, 'Re-enter PIN'));
+        choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'create'; S.createPin = ''; S.clearPin = true; S.error = ''; render(); S.clearPin = false; } }, 'Re-enter PIN'));
       }
       if (isEnter) {
         choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.screen = 'forgot'; S.forgotEmail = S.idEmail; S.error = ''; render(); } }, 'Forgot PIN?'));
-        choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'create'; S.createPin = ''; S.error = ''; render(); } }, 'Create a new PIN'));
+        choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'create'; S.createPin = ''; S.clearPin = true; S.error = ''; render(); S.clearPin = false; } }, 'Create a new PIN'));
       }
       if (isCreate) {
-        choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'enter'; S.error = ''; render(); } }, 'Already have a PIN? Enter it'));
+        choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'enter'; S.clearPin = true; S.error = ''; render(); S.clearPin = false; } }, 'Already have a PIN? Enter it'));
         choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.screen = 'forgot'; S.forgotEmail = S.idEmail; S.error = ''; render(); } }, 'Forgot PIN?'));
       }
-      choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'email'; S.createPin = ''; S.error = ''; render(); } }, 'Use a different email'));
+      choices.push(h('button', { class: 'link', type: 'button', onclick: function () { S.idStep = 'email'; S.createPin = ''; S.clearPin = true; S.error = ''; render(); S.clearPin = false; } }, 'Use a different email'));
 
       body.appendChild(h('div', { class: 'idcard' },
         h('h4', { text: cardTitle }),
