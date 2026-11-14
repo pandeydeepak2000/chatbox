@@ -116,8 +116,8 @@ class WidgetChatController extends Controller
                 'property' => [
                     'id' => $property->id,
                     'site_name' => $property->site_name,
-                    'identity_mode' => $property->identity_mode ?: 'pin_optional',
-                    'session_timeout_minutes' => (int) ($property->tenant?->settings['session_timeout_minutes'] ?? 10),
+                    'identity_mode' => $property->identity_mode ?? 'guest_only',
+                    'session_timeout_minutes' => (int) ($property->tenant?->settings['session_timeout_minutes'] ?? 30),
                     'widget_config' => $property->publicWidgetConfig(),
                 ],
                 'customer' => $customer ? ['id' => $customer->id, 'email' => $customer->email, 'email_verified' => $customer->isVerified()] : null,
@@ -621,7 +621,7 @@ class WidgetChatController extends Controller
             'offline_notice' => $config['operating_hours']['offline_notice'] ?? "Our team works {$cfg['start']}–{$cfg['end']} IST every day. Leave your message and we will reply in this chat — you can also follow it under \"My Tickets\".",
             'csat_enabled' => $config['csat_enabled'] ?? true,
             'attachments_enabled' => $config['attachments_enabled'] ?? true,
-            'identity_mode' => $property->identity_mode ?: 'pin_optional',
+            'identity_mode' => $property->identity_mode ?? 'guest_only',
         ]);
     }
 
