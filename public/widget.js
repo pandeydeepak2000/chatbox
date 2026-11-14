@@ -141,8 +141,8 @@
       '.card{background:#fff;border:1px solid #E1E4DC;border-radius:14px;padding:14px;margin-bottom:10px}',
       '.card h3{margin:0 0 6px;font-size:15px}.muted{color:#64748b;font-size:12.5px}',
       '.field{margin-bottom:10px}.field label{display:block;font-size:12.5px;font-weight:600;margin-bottom:4px}.hint{font-size:12px;color:#64748b;margin-top:3px}',
-      '.err{background:#fef2f2;color:#991b1b;border:1px solid #fecaca;padding:8px 10px;border-radius:8px;font-size:13px;margin-bottom:10px}',
-      '.ok{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:8px 10px;border-radius:8px;font-size:13px;margin-bottom:10px}',
+      '.err{background:#fef2f2;color:#991b1b;border:1px solid #fecaca;padding:8px 12px;border-radius:8px;font-size:12.5px;margin:6px 14px 10px;text-align:center;line-height:1.4}',
+      '.ok{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:8px 12px;border-radius:8px;font-size:12.5px;margin:6px 14px 10px;text-align:center;line-height:1.4}',
       '.banner{background:#fff7ed;color:#9a3412;border-bottom:1px solid #fed7aa;padding:8px 14px;font-size:12.5px}',
       '.item{display:block;width:100%;text-align:left;background:#fff;border:1px solid #E1E4DC;border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer;color:#0F1A16;font-size:13.5px}',
       '.item:hover{border-color:#0F1A16}.st{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:1px 8px;background:#eff6ff;color:#1d4ed8;margin-left:6px}',
@@ -674,9 +674,9 @@
         pinBoxes(onPinComplete),
         h('div', { class: 'hint', text: hintMsg }),
         h('div', { class: 'choice' }, choices)));
-      foot = h('div', { class: 'foot' }, alerts());
+      foot = null;
     }
-    return h('div', { style: 'display:flex;flex-direction:column;flex:1;min-height:0' }, alerts(), body, foot);
+    return h('div', { style: 'display:flex;flex-direction:column;flex:1;min-height:0' }, body, alerts(), foot);
   }
 
   function startView() {

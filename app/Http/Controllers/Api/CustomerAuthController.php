@@ -24,7 +24,7 @@ use Illuminate\Support\Facades\Cache;
  */
 class CustomerAuthController extends Controller
 {
-    private const LOGIN_FAILED = 'Email or PIN is incorrect. After several failed attempts sign-in is paused for a while — use "Forgot PIN" if you need a new one.';
+    private const LOGIN_FAILED = 'Incorrect PIN. Please try again.';
     private const FORGOT_SENT = 'If an account exists for this e-mail on this website, we have sent a 6-digit code. It expires in 10 minutes.';
 
     public function signup(Request $request): JsonResponse
