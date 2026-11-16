@@ -323,7 +323,9 @@
         }
         var sig = JSON.stringify([!!d.ai_pending, d.handler, d.open_ticket, d.status, !!d.waiting_senior]);
         if (sig !== S.syncSig) { S.syncSig = sig; changed = true; }
+        var hadTicket = !!S.openTicket;
         S.aiPending = !!d.ai_pending; S.handler = d.handler; S.openTicket = d.open_ticket; S.conversation.status = d.status;
+        if (!hadTicket && d.open_ticket && S.customer) refreshCustomer();   // the Tickets tab is up to date without a click
         if (fresh) { if (!S.open) S.unread++; ding(); }
         if (changed) render();
       } else if (r.status === 404) {
@@ -499,7 +501,7 @@
     var stickBottom = !oldScroller || viewKey !== S.lastViewKey || oldScroller.scrollHeight - oldScroller.scrollTop - oldScroller.clientHeight < 60;
     var oldTop = oldScroller ? oldScroller.scrollTop : 0;
     S.lastViewKey = viewKey;
-    var brand = (S.property && ((S.property.widget_config || {}).brand_name || S.property.site_name)) || 'Support';
+    var brand = (S.property && (S.property.brand || (S.property.widget_config || {}).brand_name || S.property.site_name)) || 'Support';
     var initial = (brand || 'S').trim().charAt(0).toUpperCase();
     panel.replaceChildren(
       h('div', { class: 'head' },
@@ -793,7 +795,7 @@
   function chatView() {
     var body = h('div', { class: 'body scroll', 'aria-live': 'polite' });
     var wc = (S.property || {}).widget_config || {};
-    var defaultStaffLabel = wc.staff_label || wc.agent_name || wc.team_name || (S.property ? (S.property.site_name + ' Support') : 'Support Team');
+    var defaultStaffLabel = wc.staff_label || wc.agent_name || wc.team_name || (S.property ? ((S.property.brand || S.property.site_name) + ' Support') : 'Support Team');
 
     S.messages.forEach(function (m) {
       if (m.sender_type === 'system') {

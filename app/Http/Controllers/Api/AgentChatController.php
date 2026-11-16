@@ -136,7 +136,7 @@ class AgentChatController extends Controller
             if (! empty($customName) && ! preg_match('/\badmin\b/i', $customName)) {
                 return $customName;
             }
-            $brand = $property?->site_name ?? 'Support';
+            $brand = $property ? \App\Services\Ai\SupportBot::brand($property) : 'Support';
 
             return "{$brand} Support";
         }
@@ -186,18 +186,8 @@ class AgentChatController extends Controller
         $conversation->last_message_at = now();
         $conversation->save();
 
-        if ($justJoined) {
-            $displayName = self::formatAgentDisplayName($user, $conversation->property);
-            $joinMsg = Message::create([
-                'conversation_id' => $conversation->id,
-                'sender_type' => 'system',
-                'sender_id' => $user->id,
-                'message_type' => 'text',
-                'content' => "🟢 {$displayName} has joined the chat.",
-                'is_read' => true,
-            ]);
-            $this->safeBroadcast(fn () => broadcast(new MessageSent($joinMsg))->toOthers());
-        }
+        // The first staff reply joins the chat: one consistent announcement (same code path as Take over).
+        \App\Services\ConversationService::announceJoin($conversation, $user, 'staff_reply');
 
         // Stored as plain text; the widget and dashboard escape on render (audit B2).
         $openTicket = \App\Models\Ticket::where('open_conversation_id', $conversation->id)->first();
@@ -253,17 +243,8 @@ class AgentChatController extends Controller
         ]);
 
         if ($prevAgentId !== $targetAgentId) {
-            $targetAgent = User::find($targetAgentId);
-            $displayName = self::formatAgentDisplayName($targetAgent, $conversation->property);
-            $joinMsg = Message::create([
-                'conversation_id' => $conversation->id,
-                'sender_type' => 'system',
-                'sender_id' => $targetAgentId,
-                'message_type' => 'text',
-                'content' => "🟢 {$displayName} has joined the chat.",
-                'is_read' => true,
-            ]);
-            $this->safeBroadcast(fn () => broadcast(new MessageSent($joinMsg))->toOthers());
+            // Assigned is not joined: the customer only hears "assigned" (once) until that person really takes part.
+            \App\Services\ConversationService::announceAssigned($conversation->fresh(), $user);
         }
 
         return response()->json([

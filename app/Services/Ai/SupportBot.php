@@ -264,12 +264,24 @@ class SupportBot
             || (bool) preg_match('/(क्या\s+(आप|यह|ये).{0,20}(बॉट|रोबोट|इंसान|एआई|ऑटोमैटिक))|((बॉट|रोबोट)\s+(हो|है|हैं))/u', $text);
     }
 
-    /** Customer-facing company name: configured brand, else the website name. */
+    /**
+     * Customer-facing company name, the same everywhere (greeting, staff label, assistant): the brand an admin set in
+     * the widget settings, else the REGISTERED COMPANY name ("SaluteHost"), else the website name. A website called
+     * "SaluteHost Web Portal" therefore greets as "SaluteHost Support", not "SaluteHost Web Portal Support".
+     */
     public static function brand(?Property $property): string
     {
-        $name = trim((string) ($property?->widget_config['brand_name'] ?? $property?->site_name ?? ''));
+        $configured = trim((string) ($property?->widget_config['brand_name'] ?? ''));
+        if ($configured !== '') {
+            return $configured;
+        }
+        $company = trim((string) ($property?->tenant?->name ?? ''));
+        if ($company !== '') {
+            return $company;
+        }
+        $site = trim((string) ($property?->site_name ?? ''));
 
-        return $name !== '' ? $name : 'our';
+        return $site !== '' ? $site : 'our';
     }
     public static function wantsHuman(string $text): bool
     {

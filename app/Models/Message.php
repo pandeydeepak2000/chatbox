@@ -53,7 +53,7 @@ class Message extends Model
                     $prop = $this->relationLoaded('conversation') ? $this->conversation?->property : null;
                     $custom = $prop?->widget_config['staff_label'] ?? $prop?->widget_config['agent_name'] ?? null;
 
-                    return $custom ?: ($prop?->site_name ? "{$prop->site_name} Support" : 'Support Team');
+                    return $custom ?: ($prop ? \App\Services\Ai\SupportBot::brand($prop) . ' Support' : 'Support Team');
                 }
 
                 return $name;

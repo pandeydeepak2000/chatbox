@@ -27,9 +27,7 @@ class ConversationService
             ])->save();
         }
         if ($by) {
-            // An agent is in: settle a running 60-second window first (joined in time -> no ticket).
-            EscalationService::onAgentJoin($conversation, $by);
-            ConversationStateMachine::moveTo($conversation, ConversationStateMachine::AGENT_ACTIVE, $by, 'staff_action');
+            self::announceJoin($conversation, $by, 'staff_action');
         } else {
             self::queueForTeam($conversation, 'escalation');
         }
@@ -82,24 +80,61 @@ class ConversationService
         });
         $conversation->refresh();
 
-        // The join notice is real: it is written only when this call actually moved the chat to AGENT_ACTIVE,
-        // so a double click or a second agent can never produce a duplicate or invented "joined" message.
-        EscalationService::onAgentJoin($conversation, $user);
-        $moved = ConversationStateMachine::moveTo($conversation, ConversationStateMachine::AGENT_ACTIVE, $user, 'agent_joined');
-        if ($moved === ConversationStateMachine::CHANGED) {
-            $displayName = \App\Http\Controllers\Api\AgentChatController::formatAgentDisplayName($user, $conversation->property);
-            $personal = $displayName === trim((string) $user->name);
-            Message::create([
-                'conversation_id' => $conversation->id,
-                'sender_type' => 'system',
-                'sender_id' => $user->id,
-                'message_type' => 'text',
-                'is_automated' => true,
-                'content' => $personal ? "{$displayName} from the support team has joined the conversation." : "{$displayName} has joined the conversation.",
-                'is_read' => true,
-            ]);
-        }
+        self::announceJoin($conversation, $user, 'agent_joined');
         Audit::record('conversation.taken_over', $conversation, [], $user, $conversation->property?->tenant_id);
+    }
+
+    /**
+     * An authorised agent is now working in the chat. Settles a running 60-second window first (joined in time ->
+     * no ticket), moves the state to AGENT_ACTIVE and tells the customer "X from the support team has joined the
+     * conversation" ONLY when this call really changed the state: a double click, a second agent or a later reply can
+     * never produce a duplicate or invented "joined" message. Used by take over AND by the first staff reply.
+     */
+    public static function announceJoin(Conversation $conversation, User $agent, string $reason = 'agent_joined'): bool
+    {
+        $conversation->loadMissing('property.tenant');
+        EscalationService::onAgentJoin($conversation, $agent);
+        $moved = ConversationStateMachine::moveTo($conversation, ConversationStateMachine::AGENT_ACTIVE, $agent, $reason);
+        if ($moved !== ConversationStateMachine::CHANGED) {
+            return false;
+        }
+        $displayName = \App\Http\Controllers\Api\AgentChatController::formatAgentDisplayName($agent, $conversation->property);
+        $personal = $displayName === trim((string) $agent->name);
+        Message::create([
+            'conversation_id' => $conversation->id,
+            'sender_type' => 'system',
+            'sender_id' => $agent->id,
+            'message_type' => 'text',
+            'is_automated' => true,
+            'content' => $personal ? "{$displayName} from the support team has joined the conversation." : "{$displayName} has joined the conversation.",
+            'is_read' => true,
+        ]);
+
+        return true;
+    }
+
+    /**
+     * The request was assigned to someone who has not joined yet: tell the customer only THAT (once), never "joined".
+     * No-op when the chat is not waiting for an agent (an agent is already in, or nothing was requested).
+     */
+    public static function announceAssigned(Conversation $conversation, User $by): bool
+    {
+        if (! ConversationStateMachine::isWaitingForAgent($conversation)) {
+            return false;
+        }
+        if (ConversationStateMachine::moveTo($conversation, ConversationStateMachine::AGENT_ASSIGNED, $by, 'assigned') !== ConversationStateMachine::CHANGED) {
+            return false;
+        }
+        Message::create([
+            'conversation_id' => $conversation->id,
+            'sender_type' => 'system',
+            'message_type' => 'text',
+            'is_automated' => true,
+            'content' => \App\Services\Ai\SupportBot::t('assigned', $conversation->language ?? 'en'),
+            'is_read' => true,
+        ]);
+
+        return true;
     }
 
     /** Explicit, authorised re-activation of automatic AI replies. */

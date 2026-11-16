@@ -239,7 +239,7 @@ class AiResponder
     /** Stable system prompt (cache friendly): rules + company-approved instructions, no per-request data. */
     private function systemPrompt(Conversation $conversation, AiSetting $settings): string
     {
-        $site = $conversation->property->site_name;
+        $site = SupportBot::brand($conversation->property);   // same company name the customer sees everywhere
         $company = trim((string) $settings->instructions);
 
         return implode("\n", array_filter([

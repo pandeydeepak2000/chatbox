@@ -138,6 +138,7 @@ class WidgetChatController extends Controller
                 'property' => [
                     'id' => $property->id,
                     'site_name' => $property->site_name,
+                    'brand' => SupportBot::brand($property),   // one company name for header, greeting and staff label
                     'identity_mode' => $property->identity_mode ?? 'guest_only',
                     'session_timeout_minutes' => $timeoutMinutes,
                     'widget_config' => $property->publicWidgetConfig(),
@@ -846,9 +847,7 @@ class WidgetChatController extends Controller
 
     private function brandName(Property $property): string
     {
-        $name = trim((string) ($property->widget_config['brand_name'] ?? $property->site_name));
-
-        return $name !== '' ? $name : 'our';
+        return SupportBot::brand($property);
     }
 
     /** Realtime is optional on cPanel: a failing broadcast must never break the request (audit B3). */

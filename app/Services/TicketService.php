@@ -261,19 +261,8 @@ class TicketService
             $ticket->forceFill(['assigned_to' => $assignee?->id])->save();
         });
         self::event($ticket, 'assigned', ['to' => $assignee?->id, 'to_name' => $assignee?->name], $by);
-        if ($assignee && $ticket->conversation && ConversationStateMachine::isWaitingForAgent($ticket->conversation)) {
-            // Real state only: the request now has an owner, but nobody has joined the chat yet.
-            $moved = ConversationStateMachine::moveTo($ticket->conversation, ConversationStateMachine::AGENT_ASSIGNED, $by, 'ticket_assigned');
-            if ($moved === ConversationStateMachine::CHANGED) {
-                \App\Models\Message::create([
-                    'conversation_id' => $ticket->conversation->id,
-                    'sender_type' => 'system',
-                    'message_type' => 'text',
-                    'is_automated' => true,
-                    'content' => SupportBot::t('assigned', $ticket->conversation->language ?? 'en'),
-                    'is_read' => true,
-                ]);
-            }
+        if ($assignee && $ticket->conversation) {
+            ConversationService::announceAssigned($ticket->conversation, $by);   // real state only, once
         }
         if ($assignee && $assignee->id !== $by->id) {
             Notifier::ticketAssigned($ticket, $assignee, $by);

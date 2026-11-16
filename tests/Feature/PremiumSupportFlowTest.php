@@ -228,7 +228,7 @@ class PremiumSupportFlowTest extends TestCase
             $reply = implode("\n", $this->botTexts($convId));
 
             $this->assertMatchesRegularExpression('/automated support assistant/i', $reply, "Case {$i}: must say it is automated.");
-            $this->assertStringContainsString('Ambition Hosting', $reply);
+            $this->assertStringContainsString('AmbitionHost', $reply, 'The registered company name, not the website name.');
             $this->assertSame('ai', Conversation::find($convId)->handler, 'Not escalated by a mere identity question.');
             $this->assertSame(0, Ticket::count());
         }
@@ -315,7 +315,7 @@ class PremiumSupportFlowTest extends TestCase
         $m->setAccessible(true);
         $prompt = strtolower($m->invoke($responder, $conv, AiSetting::forTenant($this->tenantA->id)));
 
-        $this->assertStringContainsString('ambition hosting support', $prompt);
+        $this->assertStringContainsString('ambitionhost support', $prompt);
         $this->assertStringContainsString('never use prices, plans or policies of any other company', $prompt);
         $this->assertStringContainsString('never invent a name or a colleague', $prompt);
         $this->assertStringNotContainsString('salutehost', $prompt);
