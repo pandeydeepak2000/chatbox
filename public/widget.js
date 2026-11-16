@@ -402,7 +402,7 @@
     call('POST', '/conversations/' + encodeURIComponent(S.conversation.id) + '/escalate', { visitor_token: S.visitor.token, idempotency_key: key }).then(function (r) {
       if (r.ok) {
         var dd = r.json.data;
-        S.notice = dd.mode === 'live' ? 'A team member has been asked to join this chat.' : ('Ticket ' + (dd.ticket ? dd.ticket.reference : '') + ' is open — our team will reply here.');
+        S.notice = (dd.waiting_senior || dd.mode === 'live') ? 'A team member has been asked to join this chat.' : ('Ticket ' + (dd.ticket ? dd.ticket.reference : '') + ' is open — our team will reply here.');
         S.error = '';
         if (S.customer) refreshCustomer();
       } else {

@@ -70,9 +70,9 @@ class SupportBot
             'hi-Latn' => 'Sorry — abhi ticket create nahi ho paaya. Please apna message aur email yahan chhod dein.',
         ],
         'restricted' => [
-            'en' => "I can't handle {action} in chat — our senior department will assist you.",
-            'hi' => 'मैं चैट में {action} नहीं कर सकता — हमारा सीनियर डिपार्टमेंट आपकी सहायता करेगा।',
-            'hi-Latn' => 'Main chat mein {action} handle nahi kar sakta — hamara senior department aapki help karega.',
+            'en' => "I can't process {action} directly in chat — our support team will assist you.",
+            'hi' => "मैं चैट में सीधे {action} प्रोसेस नहीं कर सकता — हमारी सपोर्ट टीम आपकी सहायता करेगी।",
+            'hi-Latn' => "Main chat mein directly {action} process nahi kar sakta — hamari support team aapki help karegi.",
         ],
         'clarify' => [
             'en' => 'Could you share a bit more detail — for example the domain or service involved and what you see (error message, step where it fails)?',
@@ -110,11 +110,12 @@ class SupportBot
         $lang = self::updateLanguage($conversation, $text);
 
         if (self::wantsHuman($text)) {
-            return self::requestHuman($conversation, $message, $lang, 'customer_request');
+            return self::transferSupportTeam($conversation, $message, $lang, 'customer_request');
         }
 
         if ($restricted = self::restrictedAction($text)) {
-            return self::escalate($conversation, $message, $lang, 'ai_escalation', self::t('restricted', $lang, ['action' => $restricted[1]]) . ' ', $restricted[0]);
+            $prefix = self::t('restricted', $lang, ['action' => $restricted[1]]);
+            return self::transferSupportTeam($conversation, $message, $lang, 'restricted_action', $prefix, $restricted[0]);
         }
 
         if ($faq = self::faqMatch($conversation->property, $text)) {
@@ -152,27 +153,14 @@ class SupportBot
         return self::transferSeniorDepartment($conversation, $message, $lang, 'ai_escalation');
     }
 
-    /** Hand over to staff: live when someone is online, otherwise a ticket (idempotent per message). */
+    /** Hand over to staff: routes through transferSupportTeam for the 1-minute live wait window. */
     public static function requestHuman(Conversation $conversation, Message $message, string $lang, string $reason, string $prefix = ''): ?Message
     {
-        try {
-            $result = ConversationService::requestHuman($conversation, 'msg-' . $message->id, $reason);
-        } catch (\Throwable $e) {
-            Log::error('Escalation failed: ' . $e->getMessage(), ['conversation' => $conversation->id]);
-
-            return self::botReply($conversation, $prefix . self::t('ticket_failed', $lang), ['source' => 'escalation_failed'], true);
-        }
-
-        if ($result['mode'] === 'live') {
-            return self::botReply($conversation, $prefix . self::t('human_live', $lang), ['source' => 'handover'], true);
-        }
-        $key = $result['created'] ? 'ticket_created' : 'ticket_existing';
-
-        return self::botReply($conversation, $prefix . self::t($key, $lang, ['ref' => $result['ticket']->reference]) . self::hoursNote($conversation->property, $lang), ['source' => 'ticket', 'ticket_id' => $result['ticket']->id], true);
+        return self::transferSupportTeam($conversation, $message, $lang, $reason, $prefix);
     }
 
-    /** Escalate to senior department with a 1-minute live wait window before announcing the ticket. */
-    public static function transferSeniorDepartment(Conversation $conversation, Message $message, string $lang, string $source, string $prefix = '', string $category = 'general', ?array $summary = null): ?Message
+    /** Escalate to support team with a 1-minute live wait window before announcing the ticket. */
+    public static function transferSupportTeam(Conversation $conversation, Message $message, string $lang, string $source, string $prefix = '', string $category = 'general', ?array $summary = null): ?Message
     {
         try {
             [$ticket, $created] = TicketService::createOrReuse($conversation, array_filter([
@@ -194,7 +182,16 @@ class SupportBot
         ]);
         \App\Services\Notifier::chatStarted($conversation, $message);
 
-        return self::botReply($conversation, $prefix . self::t('human_live', $lang), ['source' => 'handover', 'waiting_senior' => true, 'ticket_id' => $ticket->id], true);
+        $reply = $prefix !== ''
+            ? rtrim($prefix) . "\n\n" . self::t('human_live', $lang)
+            : self::t('human_live', $lang);
+
+        return self::botReply($conversation, $reply, ['source' => 'handover', 'waiting_senior' => true, 'ticket_id' => $ticket->id], true);
+    }
+
+    public static function transferSeniorDepartment(Conversation $conversation, Message $message, string $lang, string $source, string $prefix = '', string $category = 'general', ?array $summary = null): ?Message
+    {
+        return self::transferSupportTeam($conversation, $message, $lang, $source, $prefix, $category, $summary);
     }
 
     /** Escalate with a ticket (summary optional, e.g. from the LLM). */

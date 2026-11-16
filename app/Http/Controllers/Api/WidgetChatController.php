@@ -228,7 +228,7 @@ class WidgetChatController extends Controller
         }
 
         $customerOpenTicket = $ticketMessageSent ? $openTicket : null;
-        $seniorWaitRemaining = ($isWaitingSenior && $conversation->handover_at)
+        $seniorWaitRemaining = ($isWaitingSenior && ! $ticketMessageSent && $conversation->handover_at)
             ? max(0, 60 - (int) now()->diffInSeconds($conversation->handover_at))
             : 0;
 
@@ -563,18 +563,27 @@ class WidgetChatController extends Controller
             return response()->json(['success' => false, 'retry' => true, 'message' => SupportBot::t('ticket_failed', $lang)], 503);
         }
 
-        if ($result['mode'] === 'live') {
-            SupportBot::botReply($conversation, SupportBot::t('human_live', $lang), ['source' => 'handover'], true);
-        } elseif ($result['created']) {
-            SupportBot::botReply($conversation, SupportBot::t('ticket_created', $lang, ['ref' => $result['ticket']->reference]) . SupportBot::hoursNote($conversation->property, $lang), ['source' => 'ticket', 'ticket_id' => $result['ticket']->id], true);
-        }
+        $conversation->update([
+            'handler' => 'human',
+            'handover_at' => now(),
+            'ai_pending_since' => null,
+        ]);
+        \App\Services\Notifier::chatStarted($conversation, $conversation->messages()->latest('seq')->first());
+
+        SupportBot::botReply($conversation, SupportBot::t('human_live', $lang), [
+            'source' => 'handover',
+            'waiting_senior' => true,
+            'ticket_id' => $result['ticket']?->id,
+        ], true);
 
         return response()->json([
             'success' => true,
             'data' => [
-                'mode' => $result['mode'],
-                'ticket' => $result['ticket']?->toCustomerArray(),
+                'mode' => 'live',
+                'ticket' => null,
                 'created' => $result['created'],
+                'waiting_senior' => true,
+                'senior_wait_remaining' => 60,
             ],
         ]);
     }
@@ -795,7 +804,7 @@ class WidgetChatController extends Controller
         $data['open_ticket'] = $ticketMessageSent ? $openTicket?->toCustomerArray() : null;
         $data['ai_pending'] = $conversation->ai_pending_since !== null;
         $data['waiting_senior'] = $isWaitingSenior && ! $ticketMessageSent;
-        $data['senior_wait_remaining'] = ($isWaitingSenior && $conversation->handover_at)
+        $data['senior_wait_remaining'] = ($isWaitingSenior && ! $ticketMessageSent && $conversation->handover_at)
             ? max(0, 60 - (int) now()->diffInSeconds($conversation->handover_at))
             : 0;
 
