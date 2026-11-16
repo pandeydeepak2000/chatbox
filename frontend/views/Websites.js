@@ -123,6 +123,7 @@ function WidgetTab({ site, disabled, onSaved }) {
   const c = site.widget_config || {};
   const [f, setF] = useState({
     primary_color: c.primary_color || '#2563eb', welcome_message: c.welcome_message || '', position: c.position || 'right',
+    staff_label: c.staff_label || c.agent_name || '',
     attachments_enabled: c.attachments_enabled !== false, csat_enabled: c.csat_enabled !== false,
   });
   const [run, busy] = useAction();
@@ -133,11 +134,12 @@ function WidgetTab({ site, disabled, onSaved }) {
         <Field label="Brand colour"><input className="input color" type="color" value={f.primary_color} onChange={(e) => set('primary_color')(e.target.value)} /></Field>
         <Field label="Position"><Select value={f.position} onChange={set('position')} options={[{ value: 'right', label: 'Bottom right' }, { value: 'left', label: 'Bottom left' }]} /></Field>
       </div>
+      <Field label="Support agent / team display name" hint="Name shown to customers on staff replies and join notices (e.g. SaluteHost Support or your name)"><input className="input" value={f.staff_label} placeholder={site.widget_config?.brand_name ? `${site.widget_config.brand_name} Support` : 'SaluteHost Support'} onChange={(e) => set('staff_label')(e.target.value)} /></Field>
       <Field label="Welcome message"><textarea className="input" rows={3} value={f.welcome_message} onChange={(e) => set('welcome_message')(e.target.value)} /></Field>
       <Toggle checked={f.attachments_enabled} onChange={set('attachments_enabled')} label="Customers can send screenshots and files" />
       <Toggle checked={f.csat_enabled} onChange={set('csat_enabled')} label="Ask for a rating when a chat is closed" />
       <div className="widget-preview" style={{ '--brand': f.primary_color }}>
-        <div className="wp-head">{site.widget_config?.brand_name || site.site_name} Support</div>
+        <div className="wp-head">{f.staff_label || (site.widget_config?.brand_name || site.site_name) + ' Support'}</div>
         <div className="wp-body">{f.welcome_message || 'Hello! How can we help you today?'}</div>
       </div>
       <div className="row end"><Button variant="primary" disabled={busy || disabled} onClick={() => run(async () => { await api(`/properties/${site.id}`, { method: 'PUT', body: { widget_config: f } }); onSaved(); }, 'Widget saved')}><Save size={15} />Save widget</Button></div>

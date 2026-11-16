@@ -785,12 +785,23 @@
 
   function chatView() {
     var body = h('div', { class: 'body scroll', 'aria-live': 'polite' });
+    var wc = (S.property || {}).widget_config || {};
+    var defaultStaffLabel = wc.staff_label || wc.agent_name || wc.team_name || (S.property ? (S.property.site_name + ' Support') : 'SaluteHost Support');
+
     S.messages.forEach(function (m) {
-      if (m.sender_type === 'system') { body.appendChild(h('div', { class: 'sys', text: m.content })); return; }
+      if (m.sender_type === 'system') {
+        var sysContent = (m.content || '').replace(/\b(?:SaluteHost\s+)?Admin\b/gi, defaultStaffLabel);
+        body.appendChild(h('div', { class: 'sys', text: sysContent }));
+        return;
+      }
       var mine = m.sender_type === 'visitor';
       var isStaff = m.sender_type === 'agent';
-      // Bot NEVER has a label (no "BOT ASSISTANT", no "Assistant") — clean like EnergyHost!
-      var label = isStaff ? 'Senior team' : null;
+      // Bot NEVER has a label; Staff uses sender_name or configured staff_label from admin settings
+      var staffName = m.sender_name || defaultStaffLabel;
+      if (typeof staffName === 'string' && /admin/i.test(staffName) && defaultStaffLabel && !/admin/i.test(defaultStaffLabel)) {
+        staffName = defaultStaffLabel;
+      }
+      var label = isStaff ? staffName : null;
       var url = safeUrl(m.attachment_url);
       var att = url ? (m.message_type === 'image'
         ? h('a', { class: 'att', href: url, target: '_blank', rel: 'noopener noreferrer' }, h('img', { src: url, alt: 'Attachment' }))
@@ -832,7 +843,7 @@
     var seniorBanner = (S.waitingSenior && S.seniorWaitRemaining > 0 && !S.openTicket) ? h('div', {
       style: 'background:#eff6ff;color:#1e40af;border-bottom:1px solid #bfdbfe;padding:8px 14px;font-size:12px;font-weight:500;display:flex;align-items:center;justify-content:space-between;'
     },
-      h('span', { text: '⏳ Connecting to senior department…' }),
+      h('span', { text: '⏳ Connecting to support team…' }),
       h('span', { id: 'ehc-senior-timer', style: 'font-variant-numeric:tabular-nums;font-weight:600;background:#dbeafe;padding:2px 8px;border-radius:12px;', text: '0:' + (S.seniorWaitRemaining < 10 ? '0' : '') + S.seniorWaitRemaining })
     ) : null;
 
@@ -855,7 +866,7 @@
     }
     return h('div', { class: 'body' }, alerts(),
       h('div', { class: 'muted', text: 'Signed in as ' + S.customer.email }),
-      S.tickets.length === 0 ? h('div', { class: 'card' }, h('p', { class: 'muted', text: 'You have no tickets yet. If a request needs senior team attention, a ticket is created automatically.' })) :
+      S.tickets.length === 0 ? h('div', { class: 'card' }, h('p', { class: 'muted', text: 'You have no tickets yet. If a request needs support team attention, a ticket is created automatically.' })) :
         S.tickets.map(function (t) {
           return h('button', { class: 'item', onclick: function () { if (t.conversation_id) openConversation(t.conversation_id); } },
             h('div', null, h('strong', { text: t.reference }), h('span', { class: 'st', text: t.status_label })),

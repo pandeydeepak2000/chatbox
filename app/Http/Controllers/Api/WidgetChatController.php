@@ -182,7 +182,7 @@ class WidgetChatController extends Controller
             $afterSeq = Message::where('id', $request->query('after_id'))->where('conversation_id', $conversation->id)->value('seq');
         }
 
-        $query = $conversation->messages()->visibleToCustomer();
+        $query = $conversation->messages()->visibleToCustomer()->with('sender:id,name');
         if ($afterSeq !== null && is_numeric($afterSeq)) {
             $query->where('seq', '>', (int) $afterSeq);
         }
@@ -216,7 +216,7 @@ class WidgetChatController extends Controller
                     $lang = $conversation->language ?? 'en';
                     SupportBot::botReply($conversation, SupportBot::t('ticket_created', $lang, ['ref' => $openTicket->reference]) . SupportBot::hoursNote($conversation->property, $lang), ['source' => 'ticket', 'ticket_id' => $openTicket->id], true);
                     $ticketMessageSent = true;
-                    $query = $conversation->messages()->visibleToCustomer();
+                    $query = $conversation->messages()->visibleToCustomer()->with('sender:id,name');
                     if ($afterSeq !== null && is_numeric($afterSeq)) {
                         $query->where('seq', '>', (int) $afterSeq);
                     }
@@ -784,7 +784,7 @@ class WidgetChatController extends Controller
     private function conversationPayload(Conversation $conversation): array
     {
         $data = $conversation->only(['id', 'property_id', 'department_id', 'status', 'handler', 'rating', 'created_at', 'last_message_at', 'last_seq']);
-        $data['messages'] = $conversation->messages()->visibleToCustomer()->reorder()->orderByDesc('seq')->limit(300)->get()->sortBy('seq')->values(); // latest 300 only
+        $data['messages'] = $conversation->messages()->visibleToCustomer()->with('sender:id,name')->reorder()->orderByDesc('seq')->limit(300)->get()->sortBy('seq')->values(); // latest 300 only
 
         $ticketMessageSent = $conversation->messages()->where('metadata->source', 'ticket')->exists();
         $isWaitingSenior = $conversation->handler === 'human'

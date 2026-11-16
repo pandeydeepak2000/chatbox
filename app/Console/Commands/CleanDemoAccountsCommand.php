@@ -66,7 +66,7 @@ class CleanDemoAccountsCommand extends Command
         // 3. Setup / Update SaluteHost Company Admin
         $saluteAdmin = $this->ensureUser('admin@salutehost.com', [
             'tenant_id' => $saluteTenant->id,
-            'name' => 'SaluteHost Admin',
+            'name' => 'SaluteHost Support',
             'role' => 'admin',
         ]);
         $this->info("✓ SaluteHost Company Admin verified: {$saluteAdmin->email}");

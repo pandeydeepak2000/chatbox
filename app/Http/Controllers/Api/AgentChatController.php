@@ -125,6 +125,25 @@ class AgentChatController extends Controller
         ]);
     }
 
+    /** Format staff display name for chat widget (replaces "Admin" with configured or friendly name). */
+    public static function formatAgentDisplayName(?User $user, ?\App\Models\Property $property = null): string
+    {
+        $customName = $property?->widget_config['staff_label'] ?? $property?->widget_config['agent_name'] ?? null;
+        $name = trim((string) ($user?->name ?? ''));
+
+        // If the user's name is "SaluteHost Admin" or contains "Admin"
+        if ($name === '' || preg_match('/\badmin\b/i', $name)) {
+            if (! empty($customName) && ! preg_match('/\badmin\b/i', $customName)) {
+                return $customName;
+            }
+            $brand = $property?->site_name ?? 'SaluteHost';
+
+            return "{$brand} Support";
+        }
+
+        return $customName ?: $name;
+    }
+
     /**
      * Send an agent response in the conversation.
      */
@@ -168,12 +187,13 @@ class AgentChatController extends Controller
         $conversation->save();
 
         if ($justJoined) {
+            $displayName = self::formatAgentDisplayName($user, $conversation->property);
             $joinMsg = Message::create([
                 'conversation_id' => $conversation->id,
                 'sender_type' => 'system',
                 'sender_id' => $user->id,
                 'message_type' => 'text',
-                'content' => "🟢 {$user->name} has joined the chat.",
+                'content' => "🟢 {$displayName} has joined the chat.",
                 'is_read' => true,
             ]);
             $this->safeBroadcast(fn () => broadcast(new MessageSent($joinMsg))->toOthers());
@@ -234,13 +254,13 @@ class AgentChatController extends Controller
 
         if ($prevAgentId !== $targetAgentId) {
             $targetAgent = User::find($targetAgentId);
-            $agentName = $targetAgent ? $targetAgent->name : 'A live support agent';
+            $displayName = self::formatAgentDisplayName($targetAgent, $conversation->property);
             $joinMsg = Message::create([
                 'conversation_id' => $conversation->id,
                 'sender_type' => 'system',
                 'sender_id' => $targetAgentId,
                 'message_type' => 'text',
-                'content' => "🟢 {$agentName} has joined the chat.",
+                'content' => "🟢 {$displayName} has joined the chat.",
                 'is_read' => true,
             ]);
             $this->safeBroadcast(fn () => broadcast(new MessageSent($joinMsg))->toOthers());

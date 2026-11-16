@@ -31,15 +31,36 @@ class Message extends Model
         'metadata',
     ];
 
-    protected function casts(): array
+    protected $casts = [
+        'is_read' => 'boolean',
+        'metadata' => 'array',
+        'seq' => 'integer',
+        'content_html_encoded' => 'boolean',
+        'is_automated' => 'boolean',
+    ];
+
+    protected $appends = [
+        'sender_name',
+    ];
+
+    public function getSenderNameAttribute(): ?string
     {
-        return [
-            'is_read' => 'boolean',
-            'metadata' => 'array',
-            'seq' => 'integer',
-            'content_html_encoded' => 'boolean',
-            'is_automated' => 'boolean',
-        ];
+        if ($this->sender_type === 'agent') {
+            $sender = $this->relationLoaded('sender') ? $this->sender : $this->sender()->first(['id', 'name']);
+            if ($sender && ! empty($sender->name)) {
+                $name = trim($sender->name);
+                if (preg_match('/\badmin\b/i', $name)) {
+                    $prop = $this->relationLoaded('conversation') ? $this->conversation?->property : null;
+                    $custom = $prop?->widget_config['staff_label'] ?? $prop?->widget_config['agent_name'] ?? null;
+
+                    return $custom ?: ($prop?->site_name ? "{$prop->site_name} Support" : 'SaluteHost Support');
+                }
+
+                return $name;
+            }
+        }
+
+        return null;
     }
 
     /**

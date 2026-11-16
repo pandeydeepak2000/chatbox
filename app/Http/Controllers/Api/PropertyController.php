@@ -546,7 +546,8 @@ class PropertyController extends Controller
 
         // Only known settings with safe values are stored (they are used in CSS and on public pages).
         $allowed = ['primary_color', 'welcome_message', 'position', 'brand_name', 'attachments_enabled', 'csat_enabled',
-            'operating_hours', 'webhook_url', 'webhook_events', 'offline_notice', 'button_text', 'greeting'];
+            'operating_hours', 'webhook_url', 'webhook_events', 'offline_notice', 'button_text', 'greeting',
+            'staff_label', 'agent_name', 'team_name'];
         if (array_key_exists('operating_hours', $incoming) && ! is_array($incoming['operating_hours']) && $incoming['operating_hours'] !== null) {
             unset($incoming['operating_hours']);
         }

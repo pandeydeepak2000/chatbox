@@ -45,13 +45,14 @@ class ConversationService
         });
         $conversation->refresh();
 
+        $displayName = \App\Http\Controllers\Api\AgentChatController::formatAgentDisplayName($user, $conversation->property);
         Message::create([
             'conversation_id' => $conversation->id,
             'sender_type' => 'system',
             'sender_id' => $user->id,
             'message_type' => 'text',
             'is_automated' => true,
-            'content' => "🟢 {$user->name} from our support team has joined the chat.",
+            'content' => "🟢 {$displayName} has joined the chat.",
             'is_read' => true,
         ]);
         Audit::record('conversation.taken_over', $conversation, [], $user, $conversation->property?->tenant_id);

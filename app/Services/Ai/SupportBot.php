@@ -50,9 +50,9 @@ class SupportBot
 
     private const T = [
         'human_live' => [
-            'en' => "Please wait, I am checking your request...\n\nWe are transferring your chat to our senior department. Please wait for 1 minute.",
-            'hi' => "कृपया प्रतीक्षा करें, मैं आपके अनुरोध की जांच कर रहा हूँ...\n\nहम आपकी चैट को हमारे सीनियर डिपार्टमेंट में ट्रांसफर कर रहे हैं। कृपया 1 मिनट प्रतीक्षा करें।",
-            'hi-Latn' => "Please wait, main aapki request check kar raha hoon...\n\nHum aapki chat senior department ko transfer kar rahe hain. Please 1 minute wait karein.",
+            'en' => "Please wait, I am checking your request...\n\nWe are transferring your chat to our support team. Please wait for 1 minute.",
+            'hi' => "कृपया प्रतीक्षा करें, मैं आपके अनुरोध की जांच कर रहा हूँ...\n\nहम आपकी चैट को हमारी सपोर्ट टीम में ट्रांसफर कर रहे हैं। कृपया 1 मिनट प्रतीक्षा करें।",
+            'hi-Latn' => "Please wait, main aapki request check kar raha hoon...\n\nHum aapki chat support team ko transfer kar rahe hain. Please 1 minute wait karein.",
         ],
         'ticket_created' => [
             'en' => "Your request has been registered as ticket {ref}. Our team will reply within 1 to 2 hours. You can sign in anytime with your email & PIN to track updates.",

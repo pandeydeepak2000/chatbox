@@ -80,6 +80,14 @@ class SyncSaluteHostFaqs extends Command
                 $property->tenant->update(['settings' => $settings]);
             }
 
+            // Set default staff_label in widget_config if not present
+            $wc = $property->widget_config ?? [];
+            if (empty($wc['staff_label'])) {
+                $wc['staff_label'] = 'SaluteHost Support';
+                $property->update(['widget_config' => $wc]);
+                \Illuminate\Support\Facades\Cache::forget("prop_pub_{$property->public_key}");
+            }
+
             // 2. Auto-close old inactive conversations (> 10 minutes)
             $closedCount = \App\Models\Conversation::where('property_id', $property->id)
                 ->whereIn('status', ['unassigned', 'open', 'pending'])
@@ -114,6 +122,12 @@ class SyncSaluteHostFaqs extends Command
             \Illuminate\Support\Facades\Cache::forget("prop_faqs_all_{$property->id}");
             $this->info("Property {$property->public_key} now has {$count} FAQs (Cache refreshed)!");
         }
+
+        // Update user display name and historical join messages from "Admin" to "SaluteHost Support"
+        \App\Models\User::where('name', 'SaluteHost Admin')->update(['name' => 'SaluteHost Support']);
+        \App\Models\User::where('email', 'admin@salutehost.com')->where('name', 'like', '%Admin%')->update(['name' => 'SaluteHost Support']);
+        \App\Models\Message::where('content', 'like', '%Admin has joined the chat%')
+            ->update(['content' => '🟢 SaluteHost Support has joined the chat.']);
 
         $this->info('All SaluteHost FAQs synchronized successfully!');
         return Command::SUCCESS;
