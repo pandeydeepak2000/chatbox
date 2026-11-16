@@ -13,6 +13,7 @@ import Tickets from './Tickets';
 import Leads from './Leads';
 import Knowledge from './Knowledge';
 import AiSettings from './AiSettings';
+import AiReview from './AiReview';
 import Websites from './Websites';
 import Team from './Team';
 import Notifications from './Notifications';
@@ -54,6 +55,7 @@ const NAV_SECTIONS = [
   ['Knowledge & AI', [
     ['knowledge', 'Knowledge Base', BookOpen],
     ['ai', 'AI Settings', Bot, 'admin'],
+    ['aireview', 'Answer Review', Sparkles, 'admin'],
   ]],
   ['Workspace', [
     ['websites', 'Websites & Widget', Globe],
@@ -254,7 +256,7 @@ function Shell({ me, route, slug, reloadMe, onLogout }) {
 
   const View = platformOnly ? Platform : {
     customers: Customers,
-    overview: Overview, inbox: Inbox, tickets: Tickets, leads: Leads, knowledge: Knowledge, ai: AiSettings,
+    overview: Overview, inbox: Inbox, tickets: Tickets, leads: Leads, knowledge: Knowledge, ai: AiSettings, aireview: AiReview,
     websites: Websites, team: Team, notifications: Notifications, analytics: Analytics, company: Company, platform: Platform,
   }[route.view] || Overview;
 

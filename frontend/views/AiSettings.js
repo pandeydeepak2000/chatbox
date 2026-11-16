@@ -13,12 +13,18 @@ const STATUS_TEXT = {
   budget_day: 'Today’s AI budget has been reached. Only FAQs are answered automatically until tomorrow.',
 };
 const MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
+const PROVIDER_HINT = {
+  anthropic: 'claude-opus-5-5 is the default; claude-haiku-5-5 is the lowest-cost option.',
+  openai: 'Official OpenAI API. Type the exact model name from your OpenAI account.',
+  orvapi: 'Pick a model that is Active on orvapi.com/Model (some are paid-plan only), then press Test connection.',
+};
 
 export default function AiSettings() {
   const s = useApi('/ai/settings');
   const usage = useApi('/ai/usage', { poll: 60000 });
   const [form, setForm] = useState(null);
   const [run, busy] = useAction();
+  const [testMsg, setTestMsg] = useState('');
   const d = s.data?.data;
 
   if (d && !form) setForm({ ...d.settings, ...d.budget, api_key: '', instructions: d.settings.instructions || '', base_url: d.settings.base_url || '' });
@@ -54,9 +60,9 @@ export default function AiSettings() {
           {form.provider === 'openai_compatible' && (
             <Field label="API base URL" hint="For OpenAI-compatible APIs, e.g. https://api.openai.com/v1"><input className="input" value={form.base_url} onChange={(e) => set('base_url')(e.target.value)} /></Field>
           )}
-          <Field label="Model" hint={form.provider === 'anthropic' ? 'claude-opus-5-5 is the default; claude-haiku-5-5 is the lowest-cost option.' : 'Exact model name from your provider.'}>
+          <Field label="Model" hint={PROVIDER_HINT[form.provider] || 'Exact model name from your provider.'}>
             <input className="input" list="model-list" value={form.model} onChange={(e) => set('model')(e.target.value)} />
-            <datalist id="model-list">{MODELS.map((m) => <option key={m} value={m} />)}</datalist>
+            <datalist id="model-list">{(form.provider === 'orvapi' ? d.model_suggestions?.orvapi || [] : form.provider === 'anthropic' ? MODELS : []).map((m) => <option key={m} value={m} />)}</datalist>
           </Field>
           {form.provider === 'anthropic' && (
             <Field label="Effort" hint="Lower effort gives faster, cheaper replies. Low is recommended for support."><Select value={form.effort} onChange={set('effort')} options={['low', 'medium', 'high'].map((v) => ({ value: v, label: fmt.label(v) }))} /></Field>
@@ -83,7 +89,11 @@ export default function AiSettings() {
           </table>
         </section>
       </div>
-      <div className="sticky-actions"><Button variant="primary" disabled={busy} onClick={save}><Save size={15} />Save AI settings</Button></div>
+      {testMsg && <div className="alert alert-ok"><CheckCircle2 size={16} /><span>{testMsg}</span></div>}
+      <div className="sticky-actions">
+        <Button disabled={busy || !d.settings.api_key_set} title="Saves nothing. Tests the last saved provider, model and key." onClick={() => run(async () => { const r = await api('/ai/test-connection', { method: 'POST', body: {} }); setTestMsg(r.message); }, 'Connection works')}>Test connection</Button>
+        <Button variant="primary" disabled={busy} onClick={save}><Save size={15} />Save AI settings</Button>
+      </div>
 
       {u && (
         <section className="card">
