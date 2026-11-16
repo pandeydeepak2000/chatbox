@@ -73,9 +73,11 @@ return new class extends Migration
             $table->unique(['ticket_id', 'cycle', 'sequence']);
         });
 
-        // Backfill: tickets already waiting for the team start their pending period at creation.
+        // Backfill: tickets that are already waiting for the team start their first 30-minute reminder period NOW,
+        // not at their (possibly old) creation time. Otherwise the first cron run after deployment would send one
+        // reminder for every old unresolved ticket at once (a Telegram flood on a live system).
         DB::table('tickets')->whereIn('status', ['open', 'pending_team'])->whereNull('team_pending_since')
-            ->update(['team_pending_since' => DB::raw('created_at'), 'reminder_cycle' => 1]);
+            ->update(['team_pending_since' => now(), 'reminder_cycle' => 1]);
     }
 
     public function down(): void
