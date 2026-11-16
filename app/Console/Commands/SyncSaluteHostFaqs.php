@@ -73,6 +73,27 @@ class SyncSaluteHostFaqs extends Command
         $faqs = $this->getSaluteHostFaqs();
 
         foreach ($properties as $property) {
+            // 1. Ensure 10-minute session timeout in tenant settings
+            if ($property->tenant) {
+                $settings = $property->tenant->settings ?? [];
+                $settings['session_timeout_minutes'] = 10;
+                $property->tenant->update(['settings' => $settings]);
+            }
+
+            // 2. Auto-close old inactive conversations (> 10 minutes)
+            $closedCount = \App\Models\Conversation::where('property_id', $property->id)
+                ->whereIn('status', ['unassigned', 'open', 'pending'])
+                ->where(function ($q) {
+                    $q->where('last_message_at', '<', now()->subMinutes(10))
+                      ->orWhere(function ($q2) {
+                          $q2->whereNull('last_message_at')->where('updated_at', '<', now()->subMinutes(10));
+                      });
+                })
+                ->update(['status' => 'closed', 'closed_at' => now()]);
+            if ($closedCount > 0) {
+                $this->info("Auto-closed {$closedCount} stale inactive conversations (> 10 min).");
+            }
+
             $this->info("Syncing " . count($faqs) . " FAQs for Property: {$property->site_name} (Key: {$property->public_key})...");
 
             // Remove old placeholder FAQs for this SaluteHost property

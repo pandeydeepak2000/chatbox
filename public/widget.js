@@ -192,14 +192,17 @@
   }
 
   function checkSessionTimeout() {
-    if (!S.sessionTimeoutMinutes || S.sessionTimeoutMinutes <= 0 || !S.customer) return false;
+    var timeoutMin = Number(S.sessionTimeoutMinutes || 10);
+    if (timeoutMin <= 0) timeoutMin = 10;
     var last = Number(store.get('last_act') || 0);
     if (!last) { touchActivity(); return false; }
-    if (Date.now() - last > S.sessionTimeoutMinutes * 60000) {
+    if (Date.now() - last > timeoutMin * 60000) {
       store.set('customer', null);
+      store.set('vtok', null);
+      store.set('last_act', String(Date.now()));
       S.customer = null; S.tickets = []; S.conversations = [];
       S.conversation = null; S.messages = [];
-      S.idStep = 'email'; S.screen = S.identityMode !== 'guest_only' ? 'identify' : 'start';
+      S.idStep = 'email'; S.screen = S.identityMode !== 'guest_only' && S.customer ? 'identify' : 'start';
       S.notice = 'Your chat session timed out due to inactivity.';
       clearTimeout(S.pollTimer);
       render();
@@ -210,13 +213,20 @@
 
   // ------------------------------------------------------------------ boot
   function init() {
+    var timeoutMin = Number(S.sessionTimeoutMinutes || 10);
+    var last = Number(store.get('last_act') || 0);
+    if (last && (Date.now() - last > timeoutMin * 60000)) {
+      store.set('customer', null);
+      store.set('vtok', null);
+      store.set('last_act', String(Date.now()));
+    }
     call('POST', '/init', { property_key: cfg.propertyKey, visitor_token: store.get('vtok'), current_page_url: location.origin + location.pathname, browser: navigator.userAgent.slice(0, 90), os: (navigator.platform || '').slice(0, 90) }).then(function (r) {
       if (!r.ok) { if (r.status === 403) host.remove(); else console.warn('[ChatBox]', r.message); return; }
       var d = r.json.data;
       store.set('vtok', d.visitor.token);
       S.visitor = d.visitor; S.property = d.property; S.customer = d.customer;
       S.identityMode = d.property.identity_mode || 'guest_only';
-      S.sessionTimeoutMinutes = Number(d.property.session_timeout_minutes ?? 30);
+      S.sessionTimeoutMinutes = Number(d.property.session_timeout_minutes ?? 10);
       S.departments = d.departments || []; S.faqs = d.faqs || [];
       var wc = d.property.widget_config || {};
       applyStyles(/^#[0-9a-f]{3,8}$/i.test(wc.primary_color || '') ? wc.primary_color : '#2563eb', wc.position);
@@ -334,7 +344,14 @@
   // ------------------------------------------------------------------ actions
   function toggle(open) {
     S.open = open;
-    if (open) { S.unread = 0; touchActivity(); checkSessionTimeout(); }
+    if (open) {
+      S.unread = 0;
+      if (checkSessionTimeout()) {
+        init();
+        return;
+      }
+      touchActivity();
+    }
     render();
     if (open && S.conversation) poll();
   }

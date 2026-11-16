@@ -92,6 +92,11 @@ class WidgetChatController extends Controller
             CustomerAuthService::attachDevice($customer, $visitor);
         }
 
+        $timeoutMinutes = (int) ($property->tenant?->settings['session_timeout_minutes'] ?? 10);
+        if ($timeoutMinutes <= 0) {
+            $timeoutMinutes = 10;
+        }
+
         // Active conversation: the customer's latest open one (any device) or this device's guest chat.
         $conversation = Conversation::where('property_id', $property->id)
             ->whereIn('status', ['unassigned', 'open', 'pending'])
@@ -100,6 +105,19 @@ class WidgetChatController extends Controller
                 fn ($q) => $q->where('visitor_id', $visitor->id)->whereNull('customer_account_id'))
             ->latest('last_message_at')
             ->first();
+
+        // Enforce session timeout on inactive conversations
+        if ($conversation) {
+            $lastActivity = $conversation->last_message_at ?? $conversation->updated_at ?? $conversation->created_at;
+            if ($lastActivity && $lastActivity->diffInMinutes(now()) >= $timeoutMinutes) {
+                $conversation->update([
+                    'status' => 'closed',
+                    'closed_at' => now(),
+                ]);
+                DB::table('tickets')->where('conversation_id', $conversation->id)->update(['open_conversation_id' => null]);
+                $conversation = null;
+            }
+        }
 
         $departments = Cache::remember("prop_depts_{$property->id}", 120, fn () => $property->departments()->where('is_active', true)->get(['id', 'name', 'description']));
         $faqs = Cache::remember("prop_faqs_{$property->id}", 120, fn () => $property->faqs()->where('is_active', true)->get(['id', 'category', 'question', 'answer', 'order']));
@@ -117,7 +135,7 @@ class WidgetChatController extends Controller
                     'id' => $property->id,
                     'site_name' => $property->site_name,
                     'identity_mode' => $property->identity_mode ?? 'guest_only',
-                    'session_timeout_minutes' => (int) ($property->tenant?->settings['session_timeout_minutes'] ?? 30),
+                    'session_timeout_minutes' => $timeoutMinutes,
                     'widget_config' => $property->publicWidgetConfig(),
                 ],
                 'customer' => $customer ? ['id' => $customer->id, 'email' => $customer->email, 'email_verified' => $customer->isVerified()] : null,
