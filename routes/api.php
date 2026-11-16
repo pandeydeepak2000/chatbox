@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AgentChatController;
+use App\Http\Controllers\Api\AiReviewController;
 use App\Http\Controllers\Api\AttachmentController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CustomerAuthController;
@@ -188,6 +189,17 @@ Route::prefix('v1')->group(function () {
         Route::get('ai/settings', [KnowledgeController::class, 'aiSettings'])->middleware('company.data');
         Route::post('ai/settings', [KnowledgeController::class, 'saveAiSettings'])->middleware('company.data');
         Route::get('ai/usage', [KnowledgeController::class, 'aiUsage'])->middleware('company.data');
+
+        // Admin-only review of automated answers: rating, corrections (human-approved), analytics, regression, connection test
+        Route::middleware('company.data')->prefix('ai')->group(function () {
+            Route::get('answers', [AiReviewController::class, 'answers']);
+            Route::post('answers/{messageId}/review', [AiReviewController::class, 'review']);
+            Route::post('reviews/{id}/approve', [AiReviewController::class, 'approveCorrection']);
+            Route::post('reviews/{id}/reject', [AiReviewController::class, 'rejectCorrection']);
+            Route::get('quality', [AiReviewController::class, 'quality']);
+            Route::post('regression/run', [AiReviewController::class, 'regression']);
+            Route::post('test-connection', [AiReviewController::class, 'testConnection'])->middleware('throttle:5,1');
+        });
         Route::post('ai/prices', [KnowledgeController::class, 'savePrice']);
 
         // Company, websites, analytics

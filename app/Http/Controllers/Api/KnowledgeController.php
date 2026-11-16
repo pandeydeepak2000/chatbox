@@ -156,7 +156,8 @@ class KnowledgeController extends Controller
         return response()->json(['success' => true, 'data' => [
             'settings' => $settings->toSafeArray(),
             'budget' => $budget->only(['monthly_cap_usd', 'daily_cap_usd', 'per_visitor_daily_messages', 'alert_threshold_pct']),
-            'providers' => collect(AiSetting::PROVIDERS)->map(fn ($l, $k) => ['value' => $k, 'label' => $l])->values(),
+            'providers' => collect(AiSetting::PROVIDERS)->map(fn ($l, $k) => ['value' => $k, 'label' => $l, 'base_url' => AiSetting::PRESET_BASE_URLS[$k] ?? null])->values(),
+            'model_suggestions' => ['orvapi' => AiSetting::ORVAPI_MODEL_SUGGESTIONS, 'orvapi_source' => 'https://www.orvapi.com/Model', 'orvapi_checked' => '2026-11-16'],
             'prices' => AiModelPrice::orderBy('provider')->orderBy('model')->get(['provider', 'model', 'input_per_million', 'output_per_million']),
             'price_known' => AiBudgetService::price($settings) !== null,
             'status' => AiBudgetService::blockReason($settings, null),
@@ -189,6 +190,7 @@ class KnowledgeController extends Controller
         $settings->fill([
             'enabled' => $v['enabled'],
             'provider' => $v['provider'],
+            // Named providers always use their official endpoint; only "other" accepts an admin-supplied URL (SSRF-guarded above).
             'base_url' => $v['provider'] === 'openai_compatible' ? ($v['base_url'] ?? null) : null,
             'model' => $v['model'],
             'effort' => $v['effort'] ?? 'low',

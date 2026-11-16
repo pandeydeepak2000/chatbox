@@ -211,6 +211,14 @@ class AiResponder
         return ['outcome' => 'answered', 'reply' => mb_substr($reply, 0, 3000), 'cited' => $cited];
     }
 
+    /** Admin "Test connection": one tiny call with the saved provider/model/key. Never exposes the key. */
+    public function ping(AiSetting $settings): LlmResult
+    {
+        $schema = ['type' => 'object', 'properties' => ['ok' => ['type' => 'boolean']], 'required' => ['ok'], 'additionalProperties' => false];
+
+        return $this->client()->complete($settings, 'You are a connectivity check. Reply with the JSON object {"ok": true}.', [['role' => 'user', 'content' => 'ping']], $schema);
+    }
+
     private function client(): LlmClient
     {
         if ($this->client) {
@@ -222,7 +230,7 @@ class AiResponder
         return new class implements LlmClient {
             public function complete(AiSetting $settings, string $system, array $messages, array $schema): LlmResult
             {
-                return ($settings->provider === 'openai_compatible' ? new OpenAiCompatibleLlmClient() : new AnthropicLlmClient())
+                return ($settings->usesOpenAiProtocol() ? new OpenAiCompatibleLlmClient() : new AnthropicLlmClient())
                     ->complete($settings, $system, $messages, $schema);
             }
         };

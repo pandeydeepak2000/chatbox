@@ -107,6 +107,7 @@ Schedule::command('chatbox:maintenance')->hourly()->withoutOverlapping(30);
 // Every minute: reminders/SLA/Telegram retries, AI fallback, and a short-lived queue worker.
 Schedule::command('chatbox:reminders')->everyMinute()->withoutOverlapping(5);
 Schedule::command('chatbox:process-ai')->everyMinute()->withoutOverlapping(5);
+Schedule::command('chatbox:ai-regression')->dailyAt('03:30')->timezone('Asia/Kolkata');
 Schedule::command('queue:work --stop-when-empty --max-time=50 --tries=2 --timeout=45')->everyMinute()->withoutOverlapping(2);
 Schedule::command('chatbox:daily-digest')->dailyAt('10:00')->timezone('Asia/Kolkata');
 Schedule::command('sanctum:prune-expired --hours=24')->daily();

@@ -15,7 +15,7 @@ class OpenAiCompatibleLlmClient implements LlmClient
     public function complete(AiSetting $settings, string $system, array $messages, array $schema): LlmResult
     {
         $key = (string) $settings->api_key;
-        $base = rtrim((string) ($settings->base_url ?: 'https://api.openai.com/v1'), '/');
+        $base = rtrim((string) ($settings->effectiveBaseUrl() ?: 'https://api.openai.com/v1'), '/');
         if ($key === '') {
             return LlmResult::failed('No API key configured.');
         }
