@@ -136,7 +136,7 @@ class AgentChatController extends Controller
             if (! empty($customName) && ! preg_match('/\badmin\b/i', $customName)) {
                 return $customName;
             }
-            $brand = $property?->site_name ?? 'SaluteHost';
+            $brand = $property?->site_name ?? 'Support';
 
             return "{$brand} Support";
         }

@@ -49,10 +49,20 @@ class SupportBot
     ];
 
     private const T = [
-        'human_live' => [
-            'en' => "Please wait, I am checking your request...\n\nWe are transferring your chat to our support team. Please wait for 1 minute.",
-            'hi' => "कृपया प्रतीक्षा करें, मैं आपके अनुरोध की जांच कर रहा हूँ...\n\nहम आपकी चैट को हमारी सपोर्ट टीम में ट्रांसफर कर रहे हैं। कृपया 1 मिनट प्रतीक्षा करें।",
-            'hi-Latn' => "Please wait, main aapki request check kar raha hoon...\n\nHum aapki chat support team ko transfer kar rahe hain. Please 1 minute wait karein.",
+        'identity' => [
+            'en' => "I'm {brand}'s automated support assistant. A member of our team can join this chat when needed. Would you like me to bring the team in?",
+            'hi' => 'मैं {brand} का ऑटोमेटेड सपोर्ट असिस्टेंट हूँ। ज़रूरत पड़ने पर हमारी टीम का कोई सदस्य इस चैट में जुड़ सकता है। क्या आप चाहेंगे कि मैं टीम को बुलाऊँ?',
+            'hi-Latn' => 'Main {brand} ka automated support assistant hoon. Zaroorat padne par hamari team ka koi member is chat mein join kar sakta hai. Kya aap chahenge ki main team ko bulaun?',
+        ],
+        'escalated' => [
+            'en' => "I'm sending your request to our senior team for review. Please stay in this chat.",
+            'hi' => 'मैं आपकी रिक्वेस्ट सीनियर टीम के रिव्यू के लिए भेज रहा हूँ। कृपया इसी चैट में बने रहिए।',
+            'hi-Latn' => 'Main aapki request senior team ke review ke liye bhej raha hoon. Aap isi chat mein bane rahiye.',
+        ],
+        'assigned' => [
+            'en' => 'Your request has been assigned to our support team.',
+            'hi' => 'आपका अनुरोध हमारी सपोर्ट टीम को असाइन कर दिया गया है।',
+            'hi-Latn' => 'Aapki request support team ko assign kar di gayi hai.',
         ],
         'ticket_created' => [
             'en' => "Your request has been registered as ticket {ref}. Our team will reply within 1 to 2 hours. You can sign in anytime with your email & PIN to track updates.",
@@ -80,9 +90,9 @@ class SupportBot
             'hi-Latn' => 'Thoda aur detail share kariye — jaise kaunsa domain ya service hai aur aapko kya dikh raha hai (error message, kis step par problem aati hai)?',
         ],
         'clarify_sales' => [
-            'en' => 'We offer Cloud NVMe Web Hosting, Hermes AI Agent VPS, and n8n Automation Engine. Which service or plan details would you like to know?',
-            'hi' => 'हम क्लाउड वेब होस्टिंग, Hermes AI VPS और n8n ऑटोमेशन इंजन प्रदान करते हैं। आप किस प्लान के बारे में जानना चाहते हैं?',
-            'hi-Latn' => 'SaluteHost par Cloud NVMe Web Hosting, Hermes AI Agent VPS, aur n8n Automation Engine uplabdh hain. Aap kis service ya plan ke baare mein jaanna chahte hain?',
+            'en' => 'Happy to help. Which service or plan would you like to know about?',
+            'hi' => 'ज़रूर, मदद करूँगा। आप किस सर्विस या प्लान के बारे में जानना चाहते हैं?',
+            'hi-Latn' => 'Zaroor, main help karunga. Aap kis service ya plan ke baare mein jaanna chahte hain?',
         ],
         'after_hours' => [
             'en' => 'Our team works {hours} IST every day; they will reply from {next}.',
@@ -108,6 +118,11 @@ class SupportBot
         }
         $text = (string) $message->content;
         $lang = self::updateLanguage($conversation, $text);
+
+        // "Are you a bot / a real person?" is answered truthfully and never turned into a fake transfer.
+        if (self::asksIfAutomated($text)) {
+            return self::botReply($conversation, self::t('identity', $lang, ['brand' => self::brand($conversation->property)]), ['source' => 'identity']);
+        }
 
         if (self::wantsHuman($text)) {
             return self::transferSupportTeam($conversation, $message, $lang, 'customer_request');
@@ -162,33 +177,61 @@ class SupportBot
     /** Escalate to support team with a 1-minute live wait window before announcing the ticket. */
     public static function transferSupportTeam(Conversation $conversation, Message $message, string $lang, string $source, string $prefix = '', string $category = 'general', ?array $summary = null): ?Message
     {
-        try {
-            [$ticket, $created] = TicketService::createOrReuse($conversation, array_filter([
-                'source' => $source,
-                'category' => $category,
-                'summary' => $summary,
-                'idempotency_key' => 'msg-' . $message->id,
-            ], fn ($v) => $v !== null));
-        } catch (\Throwable $e) {
-            Log::error('Ticket creation failed: ' . $e->getMessage(), ['conversation' => $conversation->id]);
+        // A ticket exists at once when nobody can take the chat live (team offline / outside hours) or when the
+        // request is for staff-only work (billing, domain, account...). When a team member is online the chat
+        // waits in the live queue first; a ticket is added later if nobody joins (see WidgetChatController::syncMessages).
+        $ticket = null;
+        $needsTicketNow = ! ConversationService::teamAvailable($conversation->property) || $category !== 'general' || $summary !== null;
+        if ($needsTicketNow) {
+            try {
+                [$ticket, $created] = TicketService::createOrReuse($conversation, array_filter([
+                    'source' => $source,
+                    'category' => $category,
+                    'summary' => $summary,
+                    'idempotency_key' => 'msg-' . $message->id,
+                ], fn ($v) => $v !== null));
+            } catch (\Throwable $e) {
+                Log::error('Ticket creation failed: ' . $e->getMessage(), ['conversation' => $conversation->id]);
 
-            return self::botReply($conversation, $prefix . self::t('ticket_failed', $lang), ['source' => 'escalation_failed'], true);
+                return self::botReply($conversation, $prefix . self::t('ticket_failed', $lang), ['source' => 'escalation_failed'], true);
+            }
         }
 
-        $conversation->update([
-            'handler' => 'human',
-            'handover_at' => now(),
-            'ai_pending_since' => null,
-        ]);
-        \App\Services\Notifier::chatStarted($conversation, $message);
+        // Automation stops now; the state machine records the escalation. Nothing is announced twice.
+        $newlyQueued = ConversationService::queueForTeam($conversation, $source);
+        $conversation->forceFill(['handler' => 'human', 'handover_at' => $conversation->handover_at ?? now(), 'ai_pending_since' => null])->save();
+        if ($newlyQueued) {
+            \App\Services\Notifier::chatStarted($conversation, $message, $ticket);   // one Telegram alert (deduped)
+            if ($source === 'customer_request') {
+                \App\Services\Notifier::humanRequested($conversation);                   // in-app only: Telegram window already used
+            }
+        }
 
-        $reply = $prefix !== ''
-            ? rtrim($prefix) . "\n\n" . self::t('human_live', $lang)
-            : self::t('human_live', $lang);
-
-        return self::botReply($conversation, $reply, ['source' => 'handover', 'waiting_senior' => true, 'ticket_id' => $ticket->id], true);
+        return self::escalationNotice($conversation, $ticket, $lang, $prefix);
     }
 
+    /**
+     * The one place that words an escalation for the customer, from REAL state:
+     *  - team online in working hours -> "sent for review", no promise that anyone is free;
+     *  - team offline / outside hours -> the ticket reference and the working hours (no pretending).
+     * A transfer is never announced as completed: that only happens when an agent joins.
+     */
+    public static function escalationNotice(Conversation $conversation, ?\App\Models\Ticket $ticket, string $lang, string $prefix = ''): ?Message
+    {
+        $available = ConversationService::teamAvailable($conversation->property);
+        if ($available) {
+            $body = self::t('escalated', $lang);
+            $meta = ['source' => 'handover', 'waiting_senior' => true, 'ticket_id' => $ticket?->id];
+        } else {
+            $body = $ticket
+                ? self::t('ticket_created', $lang, ['ref' => $ticket->reference]) . self::hoursNote($conversation->property, $lang)
+                : self::t('escalated', $lang) . self::hoursNote($conversation->property, $lang);
+            $meta = ['source' => 'ticket', 'ticket_id' => $ticket?->id];
+        }
+        $reply = $prefix !== '' ? rtrim($prefix) . "\n\n" . $body : $body;
+
+        return self::botReply($conversation, $reply, $meta, true);
+    }
     public static function transferSeniorDepartment(Conversation $conversation, Message $message, string $lang, string $source, string $prefix = '', string $category = 'general', ?array $summary = null): ?Message
     {
         return self::transferSupportTeam($conversation, $message, $lang, $source, $prefix, $category, $summary);
@@ -237,6 +280,28 @@ class SupportBot
         });
     }
 
+    /** Customer asks whether they are talking to a bot / AI / person (not asking to be connected). */
+    public static function asksIfAutomated(string $text): bool
+    {
+        if (preg_match('/\b(talk|speak|connect|transfer|baat\s+kar(a|ao|va)|want|need|chahiye|chahta|chahti)\b/iu', $text)) {
+            return false; // an actual request for a person goes to the escalation flow
+        }
+
+        return (bool) preg_match('/\b(are|r)\s+(you|u)\s+(a\s+|an\s+)?(real\s+)?(bot|robot|chat\s*bot|ai|automated|machine|human|person|real|live|agent)\b'
+            . '|\b(is\s+this|this\s+is)\s+(a\s+|an\s+)?(bot|robot|ai|automated|human|real\s+person|auto\s*reply)\b'
+            . '|\b(kya|kyaa)\s+(aap|ap|tum|ye|yeh|this)\b.{0,25}\b(bot|robot|ai|human|insaan|insan|real|automatic|auto)\b'
+            . '|\b(aap|ap|tum|ye|yeh)\s+(bot|robot|insaan|insan|human)\s*(ho|hai|hain|h)?\b'
+            . '|\b(bot|robot)\s+(ho|hai|hain|h)\b/iu', $text)
+            || (bool) preg_match('/(क्या\s+(आप|यह|ये).{0,20}(बॉट|रोबोट|इंसान|एआई|ऑटोमैटिक))|((बॉट|रोबोट)\s+(हो|है|हैं))/u', $text);
+    }
+
+    /** Customer-facing company name: configured brand, else the website name. */
+    public static function brand(?Property $property): string
+    {
+        $name = trim((string) ($property?->widget_config['brand_name'] ?? $property?->site_name ?? ''));
+
+        return $name !== '' ? $name : 'our';
+    }
     public static function wantsHuman(string $text): bool
     {
         foreach (self::HUMAN_PATTERNS as $p) {
@@ -306,6 +371,26 @@ class SupportBot
     private static function isGreetingOnly(string $text): bool
     {
         return (bool) preg_match('/^\s*(hi+|hello+|hey+|namaste|namaskar|good\s+(morning|afternoon|evening)|नमस्ते|ok|okay|thanks?|thank\s+you|dhanyavaad)[\s!.,]*$/iu', $text);
+    }
+
+    /** [customer asks about (regex), FAQ question/category is about (regex), score boost]. */
+    private const INTENT_BOOSTS = [
+        ['/\b(plan|plans|price|pricing|cost|kitna|kimat)\b/i', '/\b(plan|plans|price|pricing|cost|package)\b/i', 0.6],
+        ['/\b(editor|login|canvas|access|open|khol)\b/i', '/\b(editor|login|canvas|access|sign\s*in)\b/i', 0.8],
+        ['/\b(webhook|telegram|whatsapp)\b/i', '/\b(webhook|telegram|whatsapp)\b/i', 1.2],
+        ['/\b(upgrade|scale|cpu|vcpu|ram|resource)\b/i', '/\b(upgrade|scale|cpu|vcpu|ram|resource)\b/i', 1.0],
+    ];
+
+    /** True when any 3+ character query term appears literally in the haystack (question/category text). */
+    private static function literalHit(array $terms, string $haystack): bool
+    {
+        foreach ($terms as $t) {
+            if (mb_strlen($t) >= 3 && str_contains($haystack, $t)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Deterministic FAQ match (no LLM cost). Robust scoring across questions, categories, and keywords. */
@@ -383,6 +468,12 @@ class SupportBot
             }
             $subRatio = count($q) > 0 ? ($substringHits / count($q)) : 0.0;
 
+            // Accuracy guard: a match must share at least one real term with the FAQ question or category.
+            // A hit found only inside the answer body is too weak to answer a customer with.
+            if ($qInQuestion === 0 && $qInCategory === 0 && ! self::literalHit($q, $rawQuestion . ' ' . $rawCategory)) {
+                continue;
+            }
+
             $score = ($questionRatio * 1.5) + ($categoryRatio * 0.8) + ($subRatio * 0.7);
 
             // Distinctive Keyword Boost
@@ -394,34 +485,14 @@ class SupportBot
                 }
             }
 
-            // Disambiguation: General plan/pricing overview boost
-            if (preg_match('/\b(plan|plans|price|pricing|what\s+is|kya\s+hai|details?|batao|chahiye|cost)\b/i', $cleanText)) {
-                if (in_array($faq->order, [6, 14, 15, 19, 1, 23])) {
-                    $score += 0.6;
+            // Intent boosts are data-driven: they favour FAQs whose OWN question/category talks about the
+            // same topic. No FAQ ids/positions are hard-coded, so one company's FAQ list can never skew another's.
+            $faqHead = $rawQuestion . ' ' . $rawCategory;
+            foreach (self::INTENT_BOOSTS as [$askPattern, $faqPattern, $boost]) {
+                if (preg_match($askPattern, $cleanText) && preg_match($faqPattern, $faqHead)) {
+                    $score += $boost;
                 }
             }
-
-            // Disambiguation: Editor / Login / Access
-            if (preg_match('/\b(editor|login|canvas|access|open|khol)\b/i', $cleanText)) {
-                if (in_array($faq->order, [7, 15, 20])) {
-                    $score += 0.8;
-                }
-            }
-
-            // Disambiguation: Webhook / Telegram / WhatsApp
-            if (preg_match('/\b(webhook|telegram|whatsapp|bot)\b/i', $cleanText)) {
-                if ($faq->order === 21) {
-                    $score += 1.2;
-                }
-            }
-
-            // Disambiguation: Upgrade / Scale / Resources
-            if (preg_match('/\b(upgrade|scale|cpu|vcpu|ram|resource)\b/i', $cleanText)) {
-                if (in_array($faq->order, [14, 22])) {
-                    $score += 1.0;
-                }
-            }
-
             if ($score > $bestScore) {
                 $bestScore = $score;
                 $best = $faq;

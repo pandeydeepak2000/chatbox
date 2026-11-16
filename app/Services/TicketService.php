@@ -8,6 +8,7 @@ use App\Models\Ticket;
 use App\Models\TicketAssignment;
 use App\Models\TicketEvent;
 use App\Models\User;
+use App\Services\Ai\SupportBot;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -198,11 +199,32 @@ class TicketService
         });
 
         self::event($ticket, 'status_changed', ['from' => $from, 'to' => $status, 'reason' => $reason], $user);
+        self::syncConversationState($ticket, $status, $user);
         if (in_array($status, ['resolved', 'closed'], true)) {
             Notifier::cancelTicketReminders($ticket);
         }
 
         return $ticket;
+    }
+
+    /** Keep the conversation state in step with the ticket status (authorisation was done by the caller). */
+    private static function syncConversationState(Ticket $ticket, string $status, ?User $user): void
+    {
+        $conversation = $ticket->conversation;
+        if (! $conversation) {
+            return;
+        }
+        $target = match ($status) {
+            'resolved' => ConversationStateMachine::RESOLVED,
+            'closed' => ConversationStateMachine::CLOSED,
+            'pending_customer' => ConversationStateMachine::WAITING_FOR_CUSTOMER,
+            default => $ticket->assigned_to ? ConversationStateMachine::AGENT_ACTIVE : ConversationStateMachine::QUEUED_FOR_TEAM,
+        };
+        // Reopened/active tickets must not overwrite a chat a person is actively handling.
+        if ($target === ConversationStateMachine::QUEUED_FOR_TEAM && $conversation->support_state === ConversationStateMachine::AGENT_ACTIVE) {
+            return;
+        }
+        ConversationStateMachine::moveTo($conversation, $target, $user && ! $user->isSuperAdmin() ? $user : null, 'ticket_' . $status, 'system');
     }
 
     public static function assign(Ticket $ticket, ?User $assignee, User $by): Ticket
@@ -222,6 +244,20 @@ class TicketService
             $ticket->forceFill(['assigned_to' => $assignee?->id])->save();
         });
         self::event($ticket, 'assigned', ['to' => $assignee?->id, 'to_name' => $assignee?->name], $by);
+        if ($assignee && $ticket->conversation && ConversationStateMachine::isWaitingForAgent($ticket->conversation)) {
+            // Real state only: the request now has an owner, but nobody has joined the chat yet.
+            $moved = ConversationStateMachine::moveTo($ticket->conversation, ConversationStateMachine::AGENT_ASSIGNED, $by, 'ticket_assigned');
+            if ($moved === ConversationStateMachine::CHANGED) {
+                \App\Models\Message::create([
+                    'conversation_id' => $ticket->conversation->id,
+                    'sender_type' => 'system',
+                    'message_type' => 'text',
+                    'is_automated' => true,
+                    'content' => SupportBot::t('assigned', $ticket->conversation->language ?? 'en'),
+                    'is_read' => true,
+                ]);
+            }
+        }
         if ($assignee && $assignee->id !== $by->id) {
             Notifier::ticketAssigned($ticket, $assignee, $by);
         }
@@ -238,6 +274,9 @@ class TicketService
         $ticket = Ticket::where('open_conversation_id', $conversation->id)->first();
         if ($ticket) {
             $ticket->forceFill(['status' => 'pending_team', 'last_customer_reply_at' => now()])->save();
+            if ($conversation->support_state === ConversationStateMachine::WAITING_FOR_CUSTOMER) {
+                ConversationStateMachine::moveTo($conversation, ConversationStateMachine::AGENT_ACTIVE, null, 'customer_replied', 'customer');
+            }
 
             return $ticket;
         }

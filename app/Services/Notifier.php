@@ -71,64 +71,65 @@ class Notifier
         self::telegram($ticket->tenant_id, 'ticket.created', implode("\n", $lines));
     }
 
-    public static function chatStarted(Conversation $conversation, ?Message $firstMessage = null): void
+    /**
+     * ONE escalation alert per conversation (shared dedupe window with humanRequested()), no matter how many
+     * code paths report the same escalation. Telegram carries the minimum the team needs to triage:
+     * company, website, ticket, urgency, department, masked e-mail, a short excerpt and a dashboard link that
+     * still requires staff sign-in and website authorization. Chat history never goes into Telegram.
+     */
+    public static function chatStarted(Conversation $conversation, ?Message $firstMessage = null, ?Ticket $ticket = null): void
     {
         $conversation->loadMissing(['property.tenant', 'visitor', 'customerAccount', 'department']);
         $tenantId = $conversation->property?->tenant_id;
         if (! $tenantId) {
             return;
         }
+        if (! \Illuminate\Support\Facades\Cache::add('notify:escalation:' . $conversation->id, 1, 900)) {
+            return; // already alerted for this escalation
+        }
+        $ticket ??= Ticket::where('open_conversation_id', $conversation->id)->first();
 
         $customerId = $conversation->customer_account_id;
         $visitorId = $conversation->visitor_id;
-        $propId = $conversation->property_id;
-
-        $baseQuery = Conversation::where('property_id', $propId)
-            ->where(function ($q) use ($customerId, $visitorId) {
-                if ($customerId) {
-                    $q->where('customer_account_id', $customerId)->orWhere('visitor_id', $visitorId);
-                } else {
-                    $q->where('visitor_id', $visitorId);
-                }
-            });
-
-        $totalChats = (clone $baseQuery)->count();
-        $monthChats = (clone $baseQuery)->where('created_at', '>=', now()->startOfMonth())->count();
-
-        $ordinal = match ($totalChats) {
-            1 => 'first chat',
-            2 => '2nd chat',
-            3 => '3rd chat',
-            default => "{$totalChats}th chat",
-        };
+        $totalChats = Conversation::where('property_id', $conversation->property_id)
+            ->where(fn ($q) => $customerId ? $q->where('customer_account_id', $customerId)->orWhere('visitor_id', $visitorId) : $q->where('visitor_id', $visitorId))
+            ->count();
 
         $email = $conversation->customerAccount?->email ?: $conversation->visitor?->email;
-        $name = $conversation->visitor?->name;
-        $username = $email ? (explode('@', $email)[0] ?: $email) : ($name ?: 'Visitor');
+        $who = $email ? self::maskEmail($email) : ($conversation->visitor?->name ?: 'Visitor');
         $deptName = $conversation->department?->name ?? 'General Support';
         $propName = $conversation->property?->site_name ?? 'Live Chat';
-        $text = $firstMessage?->content ?? 'Started a new live chat';
+        $company = $conversation->property?->tenant?->name ?? '';
+        $urgency = $ticket ? (Ticket::PRIORITIES[$ticket->priority] ?? ucfirst((string) $ticket->priority)) : 'Normal';
+        $excerpt = trim(preg_replace('/\s+/', ' ', (string) ($firstMessage?->content ?? '')));
+        $excerpt = $excerpt !== '' ? mb_substr($excerpt, 0, 160) . (mb_strlen($excerpt) > 160 ? '…' : '') : 'New live chat';
 
-        $title = 'Urgent Action Needed';
-        $body = "{$username} ({$ordinal}) needs support on {$propName} live chat";
-
+        $title = 'Support escalation';
+        $body = "{$who} needs the team on {$propName}" . ($ticket ? " ({$ticket->reference})" : '');
         self::toUsers(self::staffFor($conversation->property), 'chat.started', $title, $body, ['conversation_id' => $conversation->id]);
 
-        $telegramLines = [
-            '🚨 Urgent Action Needed',
-            '',
-            "{$username} ({$ordinal}) needs support on {$propName} live chat",
-            '',
-            '📧 Email: ' . ($email ?: 'Not provided'),
-            "📊 Chats this month: {$monthChats} (Total: {$totalChats})",
+        self::telegram($tenantId, 'chat.started', implode("\n", array_filter([
+            '🚨 Support escalation' . ($company !== '' ? " — {$company}" : ''),
+            "🌐 Website: {$propName}",
+            $ticket ? "🎫 Ticket: {$ticket->reference}" : null,
+            "⚡ Urgency: {$urgency}",
             "🏢 Department: {$deptName}",
-            '💬 Message: ' . mb_substr($text, 0, 500),
-            '🔗 Open: ' . url('/app/inbox?id=' . $conversation->id),
-        ];
-
-        self::telegram($tenantId, 'chat.started', implode("\n", $telegramLines));
+            "👤 Customer: {$who} (chat #{$totalChats})",
+            "💬 {$excerpt}",
+            '🔗 Open (sign-in required): ' . url('/app/inbox?id=' . $conversation->id),
+        ])));
     }
 
+    /** ra***@example.com: enough to recognise a customer, not enough to harvest addresses from a chat group. */
+    public static function maskEmail(string $email): string
+    {
+        [$local, $domain] = array_pad(explode('@', $email, 2), 2, '');
+        if ($domain === '') {
+            return mb_substr($email, 0, 2) . '***';
+        }
+
+        return mb_substr($local, 0, 2) . '***@' . $domain;
+    }
     public static function humanRequested(Conversation $conversation): void
     {
         // Security (logic F7): at most one "wants a human" alert per conversation every 10 minutes,
@@ -136,16 +137,21 @@ class Notifier
         if (! \Illuminate\Support\Facades\Cache::add('notify:human:' . $conversation->id, 1, 600)) {
             return;
         }
+        // The escalation alert may already have gone out for this same conversation: staff get the in-app
+        // notification, Telegram is not repeated.
+        $alreadyAlerted = ! \Illuminate\Support\Facades\Cache::add('notify:escalation:' . $conversation->id, 1, 900);
         $conversation->loadMissing(['property', 'visitor', 'customerAccount']);
         $who = $conversation->visitor?->name ?: 'A visitor';
         $email = $conversation->customerAccount?->email ?: $conversation->visitor?->email;
         self::toUsers(self::staffFor($conversation->property), 'human.requested', 'Customer wants a human', "{$who} on {$conversation->property?->site_name} asked to talk to a person.", ['conversation_id' => $conversation->id]);
+        if ($alreadyAlerted) {
+            return;
+        }
         self::telegram($conversation->property->tenant_id, 'human.requested', implode("\n", [
-            '🙋 Customer asked for a human',
-            "Website: {$conversation->property?->site_name}",
-            "Visitor: {$who}",
-            '📧 Customer: ' . ($email ?: 'Not provided'),
-            'Open: ' . url('/app/inbox?id=' . $conversation->id),
+            '🙋 Customer asked for a person',
+            "🌐 Website: {$conversation->property?->site_name}",
+            '👤 Customer: ' . ($email ? self::maskEmail($email) : $who),
+            '🔗 Open (sign-in required): ' . url('/app/inbox?id=' . $conversation->id),
         ]));
     }
 

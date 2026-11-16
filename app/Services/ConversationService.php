@@ -18,20 +18,55 @@ class ConversationService
 {
     public static function markHuman(Conversation $conversation, ?User $by): void
     {
-        if ($conversation->handler === 'human') {
-            return;
+        if ($conversation->handler !== 'human') {
+            $conversation->forceFill([
+                'handler' => 'human',
+                'handover_at' => now(),
+                'handover_by' => $by?->id,
+                'ai_pending_since' => null,
+            ])->save();
         }
-        $conversation->forceFill([
-            'handler' => 'human',
-            'handover_at' => now(),
-            'handover_by' => $by?->id,
-            'ai_pending_since' => null,
-        ])->save();
+        if ($by) {
+            ConversationStateMachine::moveTo($conversation, ConversationStateMachine::AGENT_ACTIVE, $by, 'staff_action');
+        } else {
+            self::queueForTeam($conversation, 'escalation');
+        }
+    }
+
+    /**
+     * A request needs the team: ESCALATION_REQUESTED, then QUEUED_FOR_TEAM (the ticket/alert exist).
+     * Chats a person already works on (AGENT_*) or that wait for the customer are not pushed back.
+     */
+    public static function queueForTeam(Conversation $conversation, string $reason): bool
+    {
+        if (in_array($conversation->support_state, [ConversationStateMachine::AGENT_ASSIGNED, ConversationStateMachine::AGENT_ACTIVE, ConversationStateMachine::WAITING_FOR_CUSTOMER], true)) {
+            return false;
+        }
+        $first = ConversationStateMachine::moveTo($conversation, ConversationStateMachine::ESCALATION_REQUESTED, null, $reason);
+        ConversationStateMachine::moveTo($conversation, ConversationStateMachine::QUEUED_FOR_TEAM, null, $reason);
+
+        return $first === ConversationStateMachine::CHANGED; // false = a duplicate request, nothing new to announce
+    }
+
+    /** Is a team member actually online inside working hours? Never assumed: checked from real data. */
+    public static function teamAvailable(?\App\Models\Property $property): bool
+    {
+        if (! $property) {
+            return false;
+        }
+
+        return BusinessHours::isOpen($property)
+            && User::where('tenant_id', $property->tenant_id)->where('is_online', true)
+                ->where('last_active_at', '>=', now()->subMinutes(15))->exists();
     }
 
     /** Staff member explicitly takes over (also assigns the chat to them if unassigned). */
     public static function takeOver(Conversation $conversation, User $user): void
     {
+        $conversation->loadMissing('property');
+        if (! ConversationStateMachine::actorMayAct($user, $conversation)) {
+            abort(403, 'You are not allowed to join this conversation.');
+        }
         DB::transaction(function () use ($conversation, $user) {
             $locked = Conversation::whereKey($conversation->id)->lockForUpdate()->first();
             $locked->forceFill([
@@ -45,22 +80,29 @@ class ConversationService
         });
         $conversation->refresh();
 
-        $displayName = \App\Http\Controllers\Api\AgentChatController::formatAgentDisplayName($user, $conversation->property);
-        Message::create([
-            'conversation_id' => $conversation->id,
-            'sender_type' => 'system',
-            'sender_id' => $user->id,
-            'message_type' => 'text',
-            'is_automated' => true,
-            'content' => "🟢 {$displayName} has joined the chat.",
-            'is_read' => true,
-        ]);
+        // The join notice is real: it is written only when this call actually moved the chat to AGENT_ACTIVE,
+        // so a double click or a second agent can never produce a duplicate or invented "joined" message.
+        $moved = ConversationStateMachine::moveTo($conversation, ConversationStateMachine::AGENT_ACTIVE, $user, 'agent_joined');
+        if ($moved === ConversationStateMachine::CHANGED) {
+            $displayName = \App\Http\Controllers\Api\AgentChatController::formatAgentDisplayName($user, $conversation->property);
+            $personal = $displayName === trim((string) $user->name);
+            Message::create([
+                'conversation_id' => $conversation->id,
+                'sender_type' => 'system',
+                'sender_id' => $user->id,
+                'message_type' => 'text',
+                'is_automated' => true,
+                'content' => $personal ? "{$displayName} from the support team has joined the conversation." : "{$displayName} has joined the conversation.",
+                'is_read' => true,
+            ]);
+        }
         Audit::record('conversation.taken_over', $conversation, [], $user, $conversation->property?->tenant_id);
     }
 
     /** Explicit, authorised re-activation of automatic AI replies. */
     public static function resumeAi(Conversation $conversation, User $user): void
     {
+        ConversationStateMachine::moveTo($conversation, ConversationStateMachine::AUTO_HANDLING, $user, 'ai_resumed');
         $conversation->forceFill([
             'handler' => 'ai',
             'ai_resumed_at' => now(),
@@ -102,9 +144,7 @@ class ConversationService
         $conversation->loadMissing('property');
         self::markHuman($conversation, null);
 
-        $online = BusinessHours::isOpen($conversation->property)
-            && User::where('tenant_id', $conversation->property->tenant_id)->where('is_online', true)
-                ->where('last_active_at', '>=', now()->subMinutes(15))->exists();
+        $online = self::teamAvailable($conversation->property);
 
         if ($online && ! $conversation->openTicket) {
             Notifier::humanRequested($conversation);

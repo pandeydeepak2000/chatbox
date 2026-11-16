@@ -248,8 +248,7 @@
     S.lastSeq = S.messages.reduce(function (m, x) { return Math.max(m, x.seq || 0); }, c.last_seq || 0);
     S.handler = c.handler || 'ai'; S.openTicket = c.open_ticket || null; S.aiPending = !!c.ai_pending;
     S.waitingSenior = !!c.waiting_senior;
-    S.seniorWaitRemaining = typeof c.senior_wait_remaining === 'number' ? c.senior_wait_remaining : 0;
-    startSeniorTimer();
+    S.seniorWaitRemaining = 0; // no countdown: the server never promises a time
   }
 
   function startSeniorTimer() {
@@ -402,7 +401,7 @@
     call('POST', '/conversations/' + encodeURIComponent(S.conversation.id) + '/escalate', { visitor_token: S.visitor.token, idempotency_key: key }).then(function (r) {
       if (r.ok) {
         var dd = r.json.data;
-        S.notice = (dd.waiting_senior || dd.mode === 'live') ? 'A team member has been asked to join this chat.' : ('Ticket ' + (dd.ticket ? dd.ticket.reference : '') + ' is open — our team will reply here.');
+        S.notice = ''; // the chat itself shows the real status message
         S.error = '';
         if (S.customer) refreshCustomer();
       } else {
@@ -776,7 +775,7 @@
   function chatView() {
     var body = h('div', { class: 'body scroll', 'aria-live': 'polite' });
     var wc = (S.property || {}).widget_config || {};
-    var defaultStaffLabel = wc.staff_label || wc.agent_name || wc.team_name || (S.property ? (S.property.site_name + ' Support') : 'SaluteHost Support');
+    var defaultStaffLabel = wc.staff_label || wc.agent_name || wc.team_name || (S.property ? (S.property.site_name + ' Support') : 'Support Team');
 
     S.messages.forEach(function (m) {
       if (m.sender_type === 'system') {
@@ -830,12 +829,10 @@
       })));
     }
 
-    var seniorBanner = (S.waitingSenior && S.seniorWaitRemaining > 0 && !S.openTicket) ? h('div', {
-      style: 'background:#eff6ff;color:#1e40af;border-bottom:1px solid #bfdbfe;padding:8px 14px;font-size:12px;font-weight:500;display:flex;align-items:center;justify-content:space-between;'
-    },
-      h('span', { text: '⏳ Connecting to support team…' }),
-      h('span', { id: 'ehc-senior-timer', style: 'font-variant-numeric:tabular-nums;font-weight:600;background:#dbeafe;padding:2px 8px;border-radius:12px;', text: '0:' + (S.seniorWaitRemaining < 10 ? '0' : '') + S.seniorWaitRemaining })
-    ) : null;
+    // Honest status only: shown while the request really waits for a team member. No countdown, no promised time.
+    var seniorBanner = (S.waitingSenior && !S.openTicket) ? h('div', {
+      style: 'background:#eff6ff;color:#1e40af;border-bottom:1px solid #bfdbfe;padding:8px 14px;font-size:12px;font-weight:500;'
+    }, h('span', { text: 'Your request is with our support team. Please stay in this chat.' })) : null;
 
     return h('div', { style: 'display:flex;flex-direction:column;flex:1;min-height:0' },
       seniorBanner,
