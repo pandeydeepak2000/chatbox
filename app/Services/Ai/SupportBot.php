@@ -79,6 +79,11 @@ class SupportBot
             'hi' => 'कृपया थोड़ा और विवरण दें — जैसे कौन सा डोमेन या सर्विस है और आपको क्या दिख रहा है (एरर मैसेज, किस स्टेप पर दिक्कत आती है)?',
             'hi-Latn' => 'Thoda aur detail share kariye — jaise kaunsa domain ya service hai aur aapko kya dikh raha hai (error message, kis step par problem aati hai)?',
         ],
+        'clarify_sales' => [
+            'en' => 'We offer Cloud NVMe Web Hosting, Hermes AI Agent VPS, and n8n Automation Engine. Which service or plan details would you like to know?',
+            'hi' => 'हम क्लाउड वेब होस्टिंग, Hermes AI VPS और n8n ऑटोमेशन इंजन प्रदान करते हैं। आप किस प्लान के बारे में जानना चाहते हैं?',
+            'hi-Latn' => 'SaluteHost par Cloud NVMe Web Hosting, Hermes AI Agent VPS, aur n8n Automation Engine uplabdh hain. Aap kis service ya plan ke baare mein jaanna chahte hain?',
+        ],
         'after_hours' => [
             'en' => 'Our team works {hours} IST every day; they will reply from {next}.',
             'hi' => 'हमारी टीम हर दिन {hours} IST काम करती है; वे {next} से जवाब देंगे।',
@@ -135,7 +140,10 @@ class SupportBot
         if (count(SearchText::terms($text)) <= 3 && $conversation->clarifications_asked < 1 && ! self::isGreetingOnly($text)) {
             $conversation->increment('clarifications_asked');
 
-            return self::botReply($conversation, self::t('clarify', $lang), ['source' => 'clarify']);
+            $isProblem = (bool) preg_match('/\b(error|failed?|not\s+work|issue|problem|dikk?at|kharab|down|bug|403|500|slow|cannot|cant|nahi\s+chal|kam\s+nahi)\b/i', $text);
+            $clarifyKey = $isProblem ? 'clarify' : 'clarify_sales';
+
+            return self::botReply($conversation, self::t($clarifyKey, $lang), ['source' => 'clarify']);
         }
         if (self::isGreetingOnly($text)) {
             return null; // the opening greeting already answered
@@ -303,39 +311,126 @@ class SupportBot
         return (bool) preg_match('/^\s*(hi+|hello+|hey+|namaste|namaskar|good\s+(morning|afternoon|evening)|नमस्ते|ok|okay|thanks?|thank\s+you|dhanyavaad)[\s!.,]*$/iu', $text);
     }
 
-    /** Deterministic FAQ match (no LLM cost). Requires a strong question overlap. */
+    /** Deterministic FAQ match (no LLM cost). Robust scoring across questions, categories, and keywords. */
     public static function faqMatch(?Property $property, string $text): ?Faq
     {
         if (! $property) {
             return null;
         }
+
         $faqs = Cache::remember("prop_faqs_all_{$property->id}", 60, fn () => $property->faqs()->where('is_active', true)->get());
-        $q = SearchText::terms($text);
-        if (count($q) === 0 || $faqs->isEmpty()) {
-            return null;
-        }
-        $brand = SearchText::terms($property->site_name);
-        $q = array_values(array_diff($q, $brand));
-        if (! $q) {
+        if ($faqs->isEmpty()) {
             return null;
         }
 
+        $cleanText = mb_strtolower(trim($text));
+        $q = SearchText::terms($cleanText);
+        $brand = SearchText::terms($property->site_name ?? '');
+        $q = array_values(array_diff($q, $brand));
+        if (empty($q)) {
+            return null;
+        }
+
+        // Distinctive keywords that carry high domain and product affinity
+        $distinctiveKeywords = [
+            'n8n' => ['n8n', 'automation', 'vps'],
+            'hermes' => ['hermes', 'agent', 'vps'],
+            'herm' => ['hermes', 'agent', 'vps'],
+            'nameserver' => ['nameserver', 'ns1', 'ns2', 'point'],
+            'dns' => ['dns', 'record', 'cname', 'txt'],
+            'cpanel' => ['cpanel', 'control panel', 'login'],
+            'wordpress' => ['wordpress', 'wp'],
+            'ssl' => ['ssl', 'https', 'certificate'],
+            'webmail' => ['email', 'webmail', 'mailbox'],
+            'backup' => ['backup', 'restore', 'jetbackup'],
+            'refund' => ['refund', 'money back'],
+            'wallet' => ['wallet', 'add money', 'balance'],
+            'inode' => ['inode', 'file count', 'usage'],
+            'whois' => ['whois', 'privacy'],
+            'migration' => ['migration', 'migrate', 'transfer site'],
+            'webhook' => ['webhook', 'telegram', 'whatsapp'],
+            '2fa' => ['2fa', 'two-factor', 'authentication'],
+        ];
+
         $best = null;
         $bestScore = 0.0;
+
         foreach ($faqs as $faq) {
-            $ft = array_values(array_diff(SearchText::terms($faq->question), $brand));
-            if (! $ft) {
-                continue;
+            $fQuestionTerms = array_values(array_diff(SearchText::terms($faq->question), $brand));
+            $fCategoryTerms = array_values(array_diff(SearchText::terms($faq->category ?? ''), $brand));
+
+            // 1. Direct Question Match: fraction of query terms present in question
+            $qInQuestion = count(array_intersect($q, $fQuestionTerms));
+            $questionRatio = count($q) > 0 ? ($qInQuestion / count($q)) : 0.0;
+
+            // 2. Direct Category Match: fraction of query terms in category
+            $qInCategory = count(array_intersect($q, $fCategoryTerms));
+            $categoryRatio = count($q) > 0 ? ($qInCategory / count($q)) : 0.0;
+
+            // 3. Substring / Literal matches in question, category, answer
+            $rawQuestion = mb_strtolower($faq->question);
+            $rawAnswer = mb_strtolower($faq->answer);
+            $rawCategory = mb_strtolower($faq->category ?? '');
+
+            $substringHits = 0.0;
+            foreach ($q as $term) {
+                if (mb_strlen($term) >= 3) {
+                    if (str_contains($rawQuestion, $term)) {
+                        $substringHits += 1.0;
+                    } elseif (str_contains($rawCategory, $term)) {
+                        $substringHits += 0.8;
+                    } elseif (str_contains($rawAnswer, $term)) {
+                        $substringHits += 0.3;
+                    }
+                }
             }
-            $common = count(array_intersect($q, $ft));
-            // both directions must overlap: most of the question's terms AND most of the FAQ's terms
-            $score = min($common / count($q), $common / count($ft));
-            if ($common >= 1 && $score > $bestScore) {
+            $subRatio = count($q) > 0 ? ($substringHits / count($q)) : 0.0;
+
+            $score = ($questionRatio * 1.5) + ($categoryRatio * 0.8) + ($subRatio * 0.7);
+
+            // Distinctive Keyword Boost
+            foreach ($distinctiveKeywords as $kw => $aliases) {
+                if (in_array($kw, $q, true) || str_contains($cleanText, $kw)) {
+                    if (str_contains($rawQuestion, $kw) || str_contains($rawCategory, $kw)) {
+                        $score += 1.0;
+                    }
+                }
+            }
+
+            // Disambiguation: General plan/pricing overview boost
+            if (preg_match('/\b(plan|plans|price|pricing|what\s+is|kya\s+hai|details?|batao|chahiye|cost)\b/i', $cleanText)) {
+                if (in_array($faq->order, [6, 14, 15, 19, 1, 23])) {
+                    $score += 0.6;
+                }
+            }
+
+            // Disambiguation: Editor / Login / Access
+            if (preg_match('/\b(editor|login|canvas|access|open|khol)\b/i', $cleanText)) {
+                if (in_array($faq->order, [7, 15, 20])) {
+                    $score += 0.8;
+                }
+            }
+
+            // Disambiguation: Webhook / Telegram / WhatsApp
+            if (preg_match('/\b(webhook|telegram|whatsapp|bot)\b/i', $cleanText)) {
+                if ($faq->order === 21) {
+                    $score += 1.2;
+                }
+            }
+
+            // Disambiguation: Upgrade / Scale / Resources
+            if (preg_match('/\b(upgrade|scale|cpu|vcpu|ram|resource)\b/i', $cleanText)) {
+                if (in_array($faq->order, [14, 22])) {
+                    $score += 1.0;
+                }
+            }
+
+            if ($score > $bestScore) {
                 $bestScore = $score;
                 $best = $faq;
             }
         }
 
-        return $bestScore >= 0.6 ? $best : null;
+        return ($bestScore >= 0.65) ? $best : null;
     }
 }

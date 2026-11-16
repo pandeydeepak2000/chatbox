@@ -111,7 +111,8 @@ class SyncSaluteHostFaqs extends Command
             }
 
             $count = Faq::where('property_id', $property->id)->count();
-            $this->info("Property {$property->public_key} now has {$count} FAQs!");
+            \Illuminate\Support\Facades\Cache::forget("prop_faqs_all_{$property->id}");
+            $this->info("Property {$property->public_key} now has {$count} FAQs (Cache refreshed)!");
         }
 
         $this->info('All SaluteHost FAQs synchronized successfully!');
