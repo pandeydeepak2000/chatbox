@@ -21,6 +21,13 @@ Artisan::command('inspire', function () {
 | * * * * * cd /home/USER/chatbox && /usr/local/bin/php artisan schedule:run >> /dev/null 2>&1
 */
 
+Artisan::command('chatbox:escalations', function () {
+    // Server-side deadline processing: every escalation whose 60-second window ended without a team member joining
+    // gets exactly one ticket, even if the visitor closed the browser. Idempotent (shares the widget's code path).
+    $n = \App\Services\EscalationService::finalizeDue();
+    $this->info("tickets_created={$n}");
+})->purpose('Create the support ticket for escalations whose 60-second window expired with nobody joining');
+
 Artisan::command('chatbox:reminders', function () {
     $sent = Notifier::sendDueReminders();
     $sla = Notifier::checkSalesFirstResponse();
@@ -105,6 +112,9 @@ Artisan::command('chatbox:maintenance', function () {
 Schedule::command('chatbox:maintenance')->hourly()->withoutOverlapping(30);
 
 // Every minute: reminders/SLA/Telegram retries, AI fallback, and a short-lived queue worker.
+// Escalation deadlines first: the customer is waiting. Runs every minute, so an offline visitor's ticket appears
+// 0-60 s after the 60-second deadline (cron granularity); an open widget finalises it within one poll.
+Schedule::command('chatbox:escalations')->everyMinute()->withoutOverlapping(2);
 Schedule::command('chatbox:reminders')->everyMinute()->withoutOverlapping(5);
 Schedule::command('chatbox:process-ai')->everyMinute()->withoutOverlapping(5);
 Schedule::command('chatbox:ai-regression')->dailyAt('03:30')->timezone('Asia/Kolkata');

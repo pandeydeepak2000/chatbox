@@ -57,4 +57,10 @@ return [
         'per_conversation_per_hour' => 3,
         'per_ip_per_day' => 10,
     ],
+
+    // Telegram reminders every 30 minutes for tickets waiting for SUPPORT action. A ticket that waits only for the
+    // customer is not repeated to the team unless this is switched on.
+    'reminders' => [
+        'include_waiting_customer' => (bool) env('CHATBOX_REMIND_WAITING_CUSTOMER', false),
+    ],
 ];

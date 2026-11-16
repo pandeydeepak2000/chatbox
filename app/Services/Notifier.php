@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Conversation;
+use App\Models\Escalation;
 use App\Models\Message;
 use App\Models\NotificationChannel;
 use App\Models\NotificationDelivery;
@@ -30,6 +31,23 @@ class Notifier
     public const MAX_ATTEMPTS = 5;
 
     // ------------------------------------------------------------------ events
+
+    /** "1 hour 30 minutes" for customer/staff facing messages (Telegram reminders). */
+    public static function humanDuration(int|float $mins): string
+    {
+        $mins = max(0, (int) round($mins));
+        $h = intdiv($mins, 60);
+        $m = $mins % 60;
+        $parts = [];
+        if ($h > 0) {
+            $parts[] = $h . ($h === 1 ? ' hour' : ' hours');
+        }
+        if ($m > 0 || ! $parts) {
+            $parts[] = $m . ($m === 1 ? ' minute' : ' minutes');
+        }
+
+        return implode(' ', $parts);
+    }
 
     public static function formatWaitDuration(int|float $mins): string
     {
@@ -72,52 +90,73 @@ class Notifier
     }
 
     /**
-     * ONE escalation alert per conversation (shared dedupe window with humanRequested()), no matter how many
-     * code paths report the same escalation. Telegram carries the minimum the team needs to triage:
-     * company, website, ticket, urgency, department, masked e-mail, a short excerpt and a dashboard link that
-     * still requires staff sign-in and website authorization. Chat history never goes into Telegram.
+     * Telegram alert the moment a visitor opens a live chat: BEFORE e-mail, PIN or any question. The event row is
+     * written to the database first (durable); delivery is retried by cron if Telegram is unavailable. The dedupe key
+     * makes refreshes, retries and double clicks harmless: one chat session = one alert per channel.
      */
-    public static function chatStarted(Conversation $conversation, ?Message $firstMessage = null, ?Ticket $ticket = null): void
+    public static function liveChatStarted(\App\Models\ChatSession $session): void
     {
-        $conversation->loadMissing(['property.tenant', 'visitor', 'customerAccount', 'department']);
-        $tenantId = $conversation->property?->tenant_id;
-        if (! $tenantId) {
+        $session->loadMissing(['property.tenant', 'visitor', 'department', 'customerAccount']);
+        $property = $session->property;
+        if (! $property) {
             return;
         }
-        if (! \Illuminate\Support\Facades\Cache::add('notify:escalation:' . $conversation->id, 1, 900)) {
-            return; // already alerted for this escalation
+        $cfg = BusinessHours::config($property);
+        $email = $session->customerAccount?->email;
+        $who = $email ? self::maskEmail($email) . ($session->customerAccount?->email_verified_at ? '' : ' (e-mail not verified yet)') : 'Visitor — verification pending';
+        $started = $session->started_at->copy()->timezone($cfg['timezone'])->format('d M Y, h:i:s A');
+        $url = url('/app/inbox');
+
+        self::toUsers(self::staffFor($property), 'chat.started', 'New live chat', "{$session->reference} on {$property->site_name}", ['chat_session_id' => $session->id]);
+        self::telegram($session->tenant_id, 'chat.started', implode("\n", [
+            '💬 New live chat started',
+            'Company: ' . ($property->tenant?->name ?? '—'),
+            "Website: {$property->site_name}",
+            "Chat: {$session->reference}",
+            'Department: ' . ($session->department?->name ?? 'Not selected yet'),
+            "Customer: {$who}",
+            "Started: {$started} {$cfg['timezone']}",
+            "Open (sign-in required): {$url}",
+        ]), 'chat-session:' . $session->id);
+    }
+
+    /**
+     * The senior-support window opened: ONE Telegram alert per escalation (durable dedupe key). Minimal customer
+     * data, no chat history, and a dashboard link that still requires staff sign-in and website authorisation.
+     */
+    public static function escalationRequested(Conversation $conversation, \App\Models\Escalation $escalation): void
+    {
+        $conversation->loadMissing(['property.tenant', 'visitor', 'customerAccount', 'department']);
+        $property = $conversation->property;
+        if (! $property) {
+            return;
         }
-        $ticket ??= Ticket::where('open_conversation_id', $conversation->id)->first();
-
-        $customerId = $conversation->customer_account_id;
-        $visitorId = $conversation->visitor_id;
-        $totalChats = Conversation::where('property_id', $conversation->property_id)
-            ->where(fn ($q) => $customerId ? $q->where('customer_account_id', $customerId)->orWhere('visitor_id', $visitorId) : $q->where('visitor_id', $visitorId))
-            ->count();
-
+        $cfg = BusinessHours::config($property);
         $email = $conversation->customerAccount?->email ?: $conversation->visitor?->email;
-        $who = $email ? self::maskEmail($email) : ($conversation->visitor?->name ?: 'Visitor');
-        $deptName = $conversation->department?->name ?? 'General Support';
-        $propName = $conversation->property?->site_name ?? 'Live Chat';
-        $company = $conversation->property?->tenant?->name ?? '';
-        $urgency = $ticket ? (Ticket::PRIORITIES[$ticket->priority] ?? ucfirst((string) $ticket->priority)) : 'Normal';
-        $excerpt = trim(preg_replace('/\s+/', ' ', (string) ($firstMessage?->content ?? '')));
-        $excerpt = $excerpt !== '' ? mb_substr($excerpt, 0, 160) . (mb_strlen($excerpt) > 160 ? '…' : '') : 'New live chat';
+        $who = $email ? self::maskEmail($email) : 'Visitor — verification pending';
+        $last = Message::where('conversation_id', $conversation->id)->where('sender_type', 'visitor')->orderByDesc('seq')->value('content');
+        $excerpt = trim(preg_replace('/\s+/', ' ', (string) $last));
+        $excerpt = $excerpt !== '' ? mb_substr($excerpt, 0, 160) . (mb_strlen($excerpt) > 160 ? '…' : '') : '—';
+        $reason = str_replace('_', ' ', $escalation->reason);
+        $deadline = $escalation->deadline_at->copy()->timezone($cfg['timezone'])->format('h:i:s A');
+        $when = $escalation->escalated_at->copy()->timezone($cfg['timezone'])->format('h:i:s A');
 
-        $title = 'Support escalation';
-        $body = "{$who} needs the team on {$propName}" . ($ticket ? " ({$ticket->reference})" : '');
-        self::toUsers(self::staffFor($conversation->property), 'chat.started', $title, $body, ['conversation_id' => $conversation->id]);
-
-        self::telegram($tenantId, 'chat.started', implode("\n", array_filter([
-            '🚨 Support escalation' . ($company !== '' ? " — {$company}" : ''),
-            "🌐 Website: {$propName}",
-            $ticket ? "🎫 Ticket: {$ticket->reference}" : null,
-            "⚡ Urgency: {$urgency}",
-            "🏢 Department: {$deptName}",
-            "👤 Customer: {$who} (chat #{$totalChats})",
-            "💬 {$excerpt}",
-            '🔗 Open (sign-in required): ' . url('/app/inbox?id=' . $conversation->id),
-        ])));
+        // Staff in-app notification: once per escalation (throttle against repeated calls); Telegram is deduplicated by key below.
+        if (\Illuminate\Support\Facades\Cache::add('notify:escalation:' . $escalation->id, 1, 3600)) {
+            self::toUsers(self::staffFor($property), 'human.requested', 'Senior support requested', "{$who} on {$property->site_name} is waiting (" . Escalation::WINDOW_SECONDS . ' s window).', ['conversation_id' => $conversation->id]);
+        }
+        self::telegram($property->tenant_id, 'human.requested', implode("\n", array_filter([
+            '🚨 Senior support needed — customer is waiting',
+            'Company: ' . ($property->tenant?->name ?? '—'),
+            "Website: {$property->site_name}",
+            'Chat: ' . ($conversation->chat_reference ?: '—'),
+            'Department: ' . ($conversation->department?->name ?? 'General Support'),
+            "Customer: {$who}",
+            "Reason: {$reason}",
+            "Question: {$excerpt}",
+            "Escalated at {$when} · join before {$deadline} (" . Escalation::WINDOW_SECONDS . ' s window)',
+            'Take over (sign-in required): ' . url('/app/inbox?id=' . $conversation->id),
+        ])), 'escalation:' . $escalation->id);
     }
 
     /** ra***@example.com: enough to recognise a customer, not enough to harvest addresses from a chat group. */
@@ -130,31 +169,6 @@ class Notifier
 
         return mb_substr($local, 0, 2) . '***@' . $domain;
     }
-    public static function humanRequested(Conversation $conversation): void
-    {
-        // Security (logic F7): at most one "wants a human" alert per conversation every 10 minutes,
-        // so repeated button presses cannot flood staff dashboards and the Telegram group.
-        if (! \Illuminate\Support\Facades\Cache::add('notify:human:' . $conversation->id, 1, 600)) {
-            return;
-        }
-        // The escalation alert may already have gone out for this same conversation: staff get the in-app
-        // notification, Telegram is not repeated.
-        $alreadyAlerted = ! \Illuminate\Support\Facades\Cache::add('notify:escalation:' . $conversation->id, 1, 900);
-        $conversation->loadMissing(['property', 'visitor', 'customerAccount']);
-        $who = $conversation->visitor?->name ?: 'A visitor';
-        $email = $conversation->customerAccount?->email ?: $conversation->visitor?->email;
-        self::toUsers(self::staffFor($conversation->property), 'human.requested', 'Customer wants a human', "{$who} on {$conversation->property?->site_name} asked to talk to a person.", ['conversation_id' => $conversation->id]);
-        if ($alreadyAlerted) {
-            return;
-        }
-        self::telegram($conversation->property->tenant_id, 'human.requested', implode("\n", [
-            '🙋 Customer asked for a person',
-            "🌐 Website: {$conversation->property?->site_name}",
-            '👤 Customer: ' . ($email ? self::maskEmail($email) : $who),
-            '🔗 Open (sign-in required): ' . url('/app/inbox?id=' . $conversation->id),
-        ]));
-    }
-
     public static function ticketAssigned(Ticket $ticket, User $assignee, User $by): void
     {
         $ticket->loadMissing(['property', 'visitor', 'customerAccount', 'conversation.customerAccount', 'conversation.visitor']);
@@ -349,56 +363,67 @@ class Notifier
         return $sent;
     }
 
-    /** 30-minute reminder for unresolved pending tickets until the team responds. */
+    public const REMINDER_INTERVAL_MINUTES = 30;
+
+    /**
+     * Telegram reminder every 30 minutes while a ticket waits for SUPPORT action (status open / waiting for team).
+     * Ticket created 10:00 -> reminders 10:30, 11:00, 11:30 ... until it is resolved or closed.
+     *
+     * - Idempotent: ticket_reminders is unique on (ticket, pending cycle, sequence), and the Telegram event carries
+     *   the same dedupe key, so cron overlaps or reruns never send the same reminder twice.
+     * - A ticket waiting only for the customer is not reminded (config chatbox.reminders.include_waiting_customer).
+     * - Reopened tickets begin a new cycle (TicketService::startPendingPeriodIfNeeded), counting from the reopen.
+     * - If cron was down, only the latest due reminder is sent (no burst of stale alerts).
+     */
     public static function checkPendingTicketReminders(): int
     {
-        $count = 0;
-        $pendingTickets = Ticket::whereIn('status', ['unassigned', 'open', 'in_progress', 'pending_customer'])
-            ->where('created_at', '<=', now()->subMinutes(30))
-            ->where(function ($q) {
-                $q->whereNull('last_reminded_at')
-                    ->orWhere('last_reminded_at', '<=', now()->subMinutes(30));
-            })
-            ->with(['property.tenant', 'customerAccount', 'visitor', 'conversation.customerAccount', 'conversation.visitor'])
-            ->get()
-            ->groupBy('tenant_id');
-
-        foreach ($pendingTickets as $tenantId => $tickets) {
-            $ticketLines = $tickets->take(10)->map(function ($t) {
-                $mins = round($t->created_at->diffInMinutes(now()));
-                $waitStr = self::formatWaitDuration($mins);
-                $email = self::customerEmailForTicket($t);
-
-                $line = "• {$t->reference} — {$t->subject} (waiting {$waitStr})";
-                if ($email) {
-                    $line .= "\n  📧 {$email}";
-                }
-
-                return $line;
-            })->implode("\n");
-
-            $tenantName = $tickets->first()?->property?->tenant?->name ?? 'Company';
-            $msg = implode("\n", [
-                '⚠️ Pending Support Tickets Alert (>30 mins without resolution)',
-                "Company: {$tenantName}",
-                $ticketLines,
-                '',
-                '🔗 Open tickets: ' . url('/app/tickets'),
-            ]);
-
-            self::telegram($tenantId, 'tickets.reminders', $msg);
-            Ticket::whereIn('id', $tickets->pluck('id'))->update(['last_reminded_at' => now()]);
-            $count += $tickets->count();
+        $statuses = ['open', 'pending_team'];
+        if (config('chatbox.reminders.include_waiting_customer', false)) {
+            $statuses[] = 'pending_customer';
         }
+        $count = 0;
+        Ticket::whereIn('status', $statuses)->whereNotNull('team_pending_since')
+            ->where('team_pending_since', '<=', now()->subMinutes(self::REMINDER_INTERVAL_MINUTES))
+            ->with(['property.tenant', 'department'])->orderBy('team_pending_since')->limit(300)->get()
+            ->each(function (Ticket $t) use (&$count) {
+                $sequence = intdiv((int) $t->team_pending_since->diffInMinutes(now()), self::REMINDER_INTERVAL_MINUTES);
+                if ($sequence < 1) {
+                    return;
+                }
+                try {
+                    \Illuminate\Support\Facades\DB::table('ticket_reminders')->insert([
+                        'ticket_id' => $t->id, 'cycle' => (int) $t->reminder_cycle, 'sequence' => $sequence, 'queued_at' => now(),
+                    ]);
+                } catch (\Illuminate\Database\QueryException) {
+                    return; // this reminder period was already queued
+                }
+                $minutes = (int) $t->team_pending_since->diffInMinutes(now());
+                self::telegram($t->tenant_id, 'tickets.reminders', implode("\n", [
+                    '🚨 Pending Support Ticket',
+                    '',
+                    'Company: ' . ($t->property?->tenant?->name ?? '—'),
+                    "Ticket: {$t->reference}",
+                    "Website: {$t->property?->site_name}",
+                    'Department: ' . ($t->department?->name ?? 'General Support'),
+                    'Priority: ' . (Ticket::PRIORITIES[$t->priority] ?? ucfirst((string) $t->priority)),
+                    'Status: Waiting for Team',
+                    'Pending: ' . self::humanDuration($minutes),
+                    '',
+                    'Customer is still waiting for support.',
+                    '',
+                    'Open Ticket (sign-in required): ' . url('/app/tickets?id=' . $t->id),
+                ]), "ticket-reminder:{$t->id}:{$t->reminder_cycle}:{$sequence}");
+                $count++;
+            });
 
         return $count;
     }
-
     /** Retry failed Telegram deliveries with exponential backoff. */
     public static function retryFailedDeliveries(): int
     {
         $n = 0;
-        NotificationDelivery::where('status', 'failed')->where('attempts', '<', self::MAX_ATTEMPTS)
+        NotificationDelivery::where('attempts', '<', self::MAX_ATTEMPTS)
+            ->where(fn ($q) => $q->where('status', 'failed')->orWhere(fn ($p) => $p->where('status', 'pending')->where('created_at', '<=', now()->subMinute())))
             ->where(fn ($q) => $q->whereNull('next_attempt_at')->orWhere('next_attempt_at', '<=', now()))
             ->limit(50)->get()->each(function ($d) use (&$n) {
                 self::deliver($d);
@@ -428,28 +453,42 @@ class Notifier
         }
     }
 
-    public static function telegram(string $tenantId, string $event, string $text): void
+    /**
+     * Record the notification event for every subscribed channel, then try to deliver.
+     *
+     * The row is written first, so the event is durable even if Telegram is down or the process dies; failures are
+     * stored with their error and retried by cron with back-off (up to MAX_ATTEMPTS). Delivery is NOT guaranteed:
+     * only that the event is persisted and retried.
+     *
+     * $dedupeKey makes the call idempotent per channel (unique channel_id + dedupe_key): the same chat session,
+     * escalation or ticket reminder is never queued twice, whatever retries, refreshes or reruns happen.
+     */
+    public static function telegram(string $tenantId, string $event, string $text, ?string $dedupeKey = null): void
     {
         $channels = NotificationChannel::where('tenant_id', $tenantId)->where('is_enabled', true)->get()
             ->filter(fn ($c) => in_array($event, $c->events ?? [], true));
 
         foreach ($channels as $channel) {
-            $delivery = NotificationDelivery::create([
-                'tenant_id' => $tenantId,
-                'channel_id' => $channel->id,
-                'event' => $event,
-                'status' => 'pending',
-                'message' => mb_substr($text, 0, 3500),
-            ]);
+            try {
+                $delivery = NotificationDelivery::create([
+                    'tenant_id' => $tenantId,
+                    'channel_id' => $channel->id,
+                    'event' => $event,
+                    'dedupe_key' => $dedupeKey,
+                    'status' => 'pending',
+                    'message' => mb_substr($text, 0, 3500),
+                ]);
+            } catch (\Illuminate\Database\UniqueConstraintViolationException) {
+                continue; // already recorded for this channel
+            }
             if (app()->runningInConsole()) {
                 self::deliver($delivery);
             } else {
-                // cPanel friendly: sent right after the HTTP response; the cron retries failures.
+                // cPanel friendly: sent right after the HTTP response; cron retries anything that did not go out.
                 dispatch(fn () => Notifier::deliver(NotificationDelivery::find($delivery->id)))->afterResponse();
             }
         }
     }
-
     public static function deliver(?NotificationDelivery $delivery): void
     {
         if (! $delivery || $delivery->status === 'sent') {

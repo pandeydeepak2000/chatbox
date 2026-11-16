@@ -30,7 +30,7 @@ class Ticket extends Model
         'tenant_id', 'property_id', 'number', 'reference', 'conversation_id', 'open_conversation_id',
         'customer_account_id', 'visitor_id', 'department_id', 'assigned_to', 'status', 'priority', 'category',
         'subject', 'summary', 'source', 'idempotency_key', 'first_response_at', 'resolved_at', 'resolved_by',
-        'last_customer_reply_at', 'last_staff_reply_at', 'last_reminded_at',
+        'last_customer_reply_at', 'last_staff_reply_at', 'last_reminded_at', 'team_pending_since', 'reminder_cycle',
     ];
 
     protected function casts(): array
@@ -43,6 +43,8 @@ class Ticket extends Model
             'last_customer_reply_at' => 'datetime',
             'last_staff_reply_at' => 'datetime',
             'last_reminded_at' => 'datetime',
+            'team_pending_since' => 'datetime',
+            'reminder_cycle' => 'integer',
         ];
     }
 

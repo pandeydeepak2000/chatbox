@@ -6,10 +6,15 @@ use Illuminate\Database\Eloquent\Model;
 
 class NotificationDelivery extends Model
 {
-    protected $fillable = ['tenant_id', 'channel_id', 'event', 'status', 'attempts', 'message', 'last_error', 'next_attempt_at', 'sent_at'];
+    protected $fillable = ['tenant_id', 'channel_id', 'event', 'dedupe_key', 'status', 'attempts', 'message', 'last_error', 'next_attempt_at', 'sent_at'];
 
     protected function casts(): array
     {
         return ['next_attempt_at' => 'datetime', 'sent_at' => 'datetime', 'attempts' => 'integer'];
+    }
+
+    public function channel(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(NotificationChannel::class, 'channel_id');
     }
 }

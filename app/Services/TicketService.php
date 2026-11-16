@@ -61,6 +61,8 @@ class TicketService
                     'department_id' => $o['department_id'] ?? $conversation->department_id,
                     'assigned_to' => $conversation->assigned_agent_id,
                     'status' => 'open',
+                    'team_pending_since' => now(),   // reminders count from here
+                    'reminder_cycle' => 1,
                     'priority' => $o['priority'] ?? 'normal',
                     'category' => $o['category'] ?? 'general',
                     'subject' => mb_substr($o['subject'] ?? self::subjectFrom($conversation), 0, 200),
@@ -199,12 +201,27 @@ class TicketService
         });
 
         self::event($ticket, 'status_changed', ['from' => $from, 'to' => $status, 'reason' => $reason], $user);
+        self::startPendingPeriodIfNeeded($ticket, $from, $status);
         self::syncConversationState($ticket, $status, $user);
         if (in_array($status, ['resolved', 'closed'], true)) {
             Notifier::cancelTicketReminders($ticket);
         }
 
         return $ticket;
+    }
+
+    public const TEAM_PENDING = ['open', 'pending_team'];
+
+    /**
+     * A ticket that (re)enters a waiting-for-team status starts a new pending period, so the 30-minute Telegram
+     * reminders count from that moment and a reopened ticket is reminded again. Staying in a pending status
+     * (open -> pending_team) keeps the running period.
+     */
+    private static function startPendingPeriodIfNeeded(Ticket $ticket, string $from, string $to): void
+    {
+        if (in_array($to, self::TEAM_PENDING, true) && ! in_array($from, self::TEAM_PENDING, true)) {
+            $ticket->forceFill(['team_pending_since' => now(), 'reminder_cycle' => (int) $ticket->reminder_cycle + 1])->save();
+        }
     }
 
     /** Keep the conversation state in step with the ticket status (authorisation was done by the caller). */
@@ -273,7 +290,9 @@ class TicketService
     {
         $ticket = Ticket::where('open_conversation_id', $conversation->id)->first();
         if ($ticket) {
+            $was = $ticket->status;
             $ticket->forceFill(['status' => 'pending_team', 'last_customer_reply_at' => now()])->save();
+            self::startPendingPeriodIfNeeded($ticket, $was, 'pending_team');
             if ($conversation->support_state === ConversationStateMachine::WAITING_FOR_CUSTOMER) {
                 ConversationStateMachine::moveTo($conversation, ConversationStateMachine::AGENT_ACTIVE, null, 'customer_replied', 'customer');
             }

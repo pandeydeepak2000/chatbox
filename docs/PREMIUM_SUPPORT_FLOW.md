@@ -20,22 +20,43 @@ Who moves the state:
 
 | Event | Code | New state |
 |---|---|---|
-| Customer asks for a person / bot cannot answer / restricted action | `SupportBot::transferSupportTeam` → `ConversationService::queueForTeam` | ESCALATION_REQUESTED → QUEUED_FOR_TEAM |
+| Customer asks for a person / bot cannot answer / restricted action | `SupportBot::transferSupportTeam` → `EscalationService::request` → `ConversationService::queueForTeam` | ESCALATION_REQUESTED → QUEUED_FOR_TEAM |
 | Ticket assigned to a person | `TicketService::assign` | AGENT_ASSIGNED (+ one "assigned" notice) |
 | Agent clicks Take over / sends a reply | `ConversationService::takeOver / markHuman` | AGENT_ACTIVE (+ one "joined" notice) |
 | Ticket → waiting for customer / resolved / closed | `TicketService::changeStatus` | WAITING_FOR_CUSTOMER / RESOLVED / CLOSED |
 | Customer replies while waiting | `TicketService::customerReplied` | AGENT_ACTIVE |
 | Resume AI | `ConversationService::resumeAi` | AUTO_HANDLING |
 
-## 2. What the customer is told (real state only)
+## 2. The real 60-second senior-support window
 
-- Team online in working hours: "Main aapki request senior team ke review ke liye bhej raha hoon. Aap isi chat mein bane rahiye." No ticket yet. If nobody joins within `QUEUE_NOTICE_SECONDS` (60) the ticket reference is shown.
-- Team offline / outside hours, or a staff-only request (refund, DNS, …): the ticket reference plus the working hours, immediately.
-- Assigned: "Aapki request support team ko assign kar di gayi hai."
-- Joined: "{Name} from the support team has joined the conversation." Written only when the state really changed to AGENT_ACTIVE.
-- "Are you a bot?" gets a truthful answer (`SupportBot::asksIfAutomated`) and is not turned into a transfer.
-- No countdown, no "transferring… 1 minute", no technical labels.
+> Correction history: an earlier revision removed the countdown and replaced it with an open-ended "stay in this chat". That was wrong: the 60-second window is a business rule (a real opportunity for a team member to join). It is restored below and driven by the server clock.
 
+Code: `App\Services\EscalationService`, `App\Models\Escalation`, table `escalations`, scheduler command `chatbox:escalations`.
+
+| Step | Behaviour |
+|---|---|
+| Start | `EscalationService::request()` under a conversation row lock: `escalated_at = now()`, `deadline_at = escalated_at + 60 s`, `status = waiting`, `open_key = conversation_id` (unique: one open escalation per chat). Automated replies stop (`handler = human`). The customer message is *"Please wait a moment. We're connecting you with our senior support team."* |
+| Duplicates | A second request while one is waiting (button, message, refresh, retry) returns the same row. A chat that already has an open ticket or an active agent starts nothing. |
+| Countdown | The widget shows the server's `senior_wait_remaining` (from `deadline_at − now`), re-synced on every poll/init/sign-in. It is never restarted by the client. |
+| Agent joins | `onAgentJoin()` (take over or first staff reply): inside the window → `joined`, no ticket. After the deadline but not yet finalised → ticket registered first (once), then the agent continues in the same chat (`finalized_via = agent_late`). |
+| Nobody joins | `finalize()` creates/reuses exactly one ticket (`idempotency_key = esc-<id>`), writes the customer message once and moves on. |
+| Race safety | Every path locks conversation row → escalation row and re-reads `status` under the lock; the loser sees the final status. Takeover vs timeout therefore always ends in one consistent state (tests cover both orders and the 1-second-before case). |
+| Who finalises | (1) the widget's `/sync` poll while the chat is open (within a poll, ~2.5 s); (2) the scheduler `chatbox:escalations` every minute for visitors who left. **cPanel delay:** cron granularity is one minute, so for an offline visitor the ticket appears 0–60 s after the deadline (≈2 minutes after the escalation at worst). |
+| Outside working hours | Nobody can answer within a minute, so no countdown is staged: `deadline_at = escalated_at`, the ticket is registered immediately and the message states the working hours. (Product decision; change `EscalationService::request()` if a countdown is wanted at all times.) |
+
+Customer-facing texts (EN / HI / Hinglish) are in `SupportBot::T`: `escalation_wait`, `ticket_registered`, `ticket_registered_guest` (no PIN sentence for guests without an account), `assigned`, `identity`.
+
+Other rules kept from before: "Joined" notices only after a real authenticated takeover; the assistant answers truthfully if asked whether it is automated; no technical labels in the customer chat.
+
+## 2b. Live chat session and Telegram events
+
+- `POST /api/v1/widget/session` (called by `widget.js` when the visitor opens the chat) creates/reuses a `chat_sessions` row (reference `CH-<PREFIX>-XXXXXX`) and queues the `chat.started` Telegram event **before e-mail, PIN or any question**. The first question later attaches to the same session (`conversations.chat_reference`). A client that never calls `/session` gets the session at `/start`, so there is exactly one alert either way. Trade-off: every visitor who opens the chat produces an alert; limit it by rate limits/bot shield or by moving the call to the department/e-mail step if that is too noisy.
+- `Notifier::telegram()` writes the event (`notification_deliveries`, status `pending`) **before** sending and has a durable idempotency key (`dedupe_key`, unique per channel): `chat-session:<id>`, `escalation:<id>`, `ticket-reminder:<ticket>:<cycle>:<n>`. Failures are stored with the error and retried by cron with back-off (max 5 attempts); rows that never got a first attempt (process died after the response) are rescued after one minute. **Delivery is not guaranteed** (Telegram can be down): what is guaranteed is that the event is recorded and retried, and failures stay visible in the delivery history.
+- Events: `chat.started` (live chat opened), `human.requested` (senior-support window, with the deadline), `ticket.created`, `tickets.reminders`.
+
+## 2c. 30-minute ticket reminders
+
+`Notifier::checkPendingTicketReminders()` (run by `chatbox:reminders` every minute). Per ticket, per pending period: `tickets.team_pending_since` + `tickets.reminder_cycle`, history in `ticket_reminders` (unique `ticket_id, cycle, sequence`). Statuses reminded: `open`, `pending_team` (not `pending_customer`, unless `CHATBOX_REMIND_WAITING_CUSTOMER=true`). Resolved/closed stops it; a reopen or a customer reply starts a new cycle. If cron was paused, only the latest due reminder is sent.
 ## 3. Accuracy and company isolation
 
 - Removed SaluteHost-specific FAQ row-order boosts and the hard-coded SaluteHost product list from shared code. Intent boosts now look only at the FAQ's own text.
@@ -46,7 +67,7 @@ Who moves the state:
 
 ## 4. Telegram (internal only)
 
-`Notifier::chatStarted`: one alert per escalation (cache dedupe shared with `humanRequested`), containing company, website, ticket, urgency, department, masked e-mail, a 160-character excerpt and a sign-in-protected dashboard link. No chat history. Nothing Telegram-related reaches the widget.
+See 2b. Alerts contain company, website, chat/ticket reference, department, masked e-mail, a 160-character excerpt and a sign-in-protected dashboard link. No chat history. Nothing Telegram-related reaches the widget.
 
 ## 5. Platform admin isolation
 
@@ -63,9 +84,10 @@ Who moves the state:
 
 ## 7. Cron / polling
 
-Unchanged: one cPanel cron entry running `php artisan schedule:run` every minute. New scheduled item: `chatbox:ai-regression` (daily). The widget polls `/sync` (2.5 s while waiting, slower when idle).
+One cPanel cron entry running `php artisan schedule:run` every minute. Scheduled: `chatbox:escalations` (every minute, first), `chatbox:reminders` (every minute: task/sales reminders, 30-minute ticket reminders, Telegram retries), `chatbox:ai-regression` (daily). The widget polls `/sync` (2.5 s while waiting, slower when idle). No Redis, WebSocket server or Supervisor is needed.
 
 ## 8. Migrations (run `php artisan migrate`)
 
 - `2026_11_16_100000_add_support_state_machine` (adds columns, state log table, backfills existing chats)
 - `2026_11_16_110000_create_ai_answer_reviews` (reviews and regression cases)
+- `2026_11_16_120000_create_escalations_chat_sessions_and_reminders` (escalations, chat sessions, Telegram `dedupe_key`, ticket pending period + reminder history)

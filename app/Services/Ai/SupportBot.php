@@ -9,6 +9,7 @@ use App\Models\Message;
 use App\Models\Property;
 use App\Services\BusinessHours;
 use App\Services\ConversationService;
+use App\Services\EscalationService;
 use App\Services\Knowledge\KnowledgeSearch;
 use App\Services\TicketService;
 use App\Support\SearchText;
@@ -54,20 +55,25 @@ class SupportBot
             'hi' => 'मैं {brand} का ऑटोमेटेड सपोर्ट असिस्टेंट हूँ। ज़रूरत पड़ने पर हमारी टीम का कोई सदस्य इस चैट में जुड़ सकता है। क्या आप चाहेंगे कि मैं टीम को बुलाऊँ?',
             'hi-Latn' => 'Main {brand} ka automated support assistant hoon. Zaroorat padne par hamari team ka koi member is chat mein join kar sakta hai. Kya aap chahenge ki main team ko bulaun?',
         ],
-        'escalated' => [
-            'en' => "I'm sending your request to our senior team for review. Please stay in this chat.",
-            'hi' => 'मैं आपकी रिक्वेस्ट सीनियर टीम के रिव्यू के लिए भेज रहा हूँ। कृपया इसी चैट में बने रहिए।',
-            'hi-Latn' => 'Main aapki request senior team ke review ke liye bhej raha hoon. Aap isi chat mein bane rahiye.',
+        'escalation_wait' => [
+            'en' => "Please wait a moment. We're connecting you with our senior support team.",
+            'hi' => 'कृपया थोड़ा इंतज़ार करें। हम आपको हमारी सीनियर सपोर्ट टीम से जोड़ रहे हैं।',
+            'hi-Latn' => 'Please thoda wait kariye. Hum aapko hamari senior support team se connect kar rahe hain.',
         ],
         'assigned' => [
             'en' => 'Your request has been assigned to our support team.',
             'hi' => 'आपका अनुरोध हमारी सपोर्ट टीम को असाइन कर दिया गया है।',
             'hi-Latn' => 'Aapki request support team ko assign kar di gayi hai.',
         ],
-        'ticket_created' => [
-            'en' => "Your request has been registered as ticket {ref}. Our team will reply within 1 to 2 hours. You can sign in anytime with your email & PIN to track updates.",
-            'hi' => 'आपका अनुरोध टिकट {ref} के रूप में दर्ज कर लिया गया है। हमारी टीम 1 से 2 घंटे के भीतर जवाब देगी। आप अपडेट देखने के लिए कभी भी अपने ईमेल और पिन से साइन इन कर सकते हैं।',
-            'hi-Latn' => 'Aapki request ticket {ref} ke roop mein register ho gayi hai. Hamari team 1 se 2 ghante mein reply karegi. Aap updates dekhne ke liye kisi bhi time email aur PIN se sign in kar sakte hain.',
+        'ticket_registered' => [
+            'en' => "Thank you for waiting. Your support request has been registered successfully.\n\nTicket ID: #{ref}\n\nOur team will review your request and reply here. You can also return using your registered email and Support PIN.\n\nYou may check your ticket status again in 1–2 hours.",
+            'hi' => "प्रतीक्षा के लिए धन्यवाद। आपका सपोर्ट अनुरोध सफलतापूर्वक दर्ज कर लिया गया है।\n\nटिकट ID: #{ref}\n\nहमारी टीम आपके अनुरोध की समीक्षा करके यहीं जवाब देगी। आप अपने रजिस्टर्ड ईमेल और सपोर्ट पिन से भी वापस आ सकते हैं।\n\nआप 1–2 घंटे बाद अपने टिकट की स्थिति फिर से देख सकते हैं।",
+            'hi-Latn' => "Wait karne ke liye dhanyavaad. Aapki support request successfully register ho gayi hai.\n\nTicket ID: #{ref}\n\nHamari team aapki request review karke yahin reply karegi. Aap apne registered email aur Support PIN se bhi wapas aa sakte hain.\n\nAap 1–2 ghante baad apne ticket ka status dobara check kar sakte hain.",
+        ],
+        'ticket_registered_guest' => [
+            'en' => "Thank you for waiting. Your support request has been registered successfully.\n\nTicket ID: #{ref}\n\nOur team will review your request and reply here.\n\nYou may check back on your ticket in 1–2 hours.",
+            'hi' => "प्रतीक्षा के लिए धन्यवाद। आपका सपोर्ट अनुरोध सफलतापूर्वक दर्ज कर लिया गया है।\n\nटिकट ID: #{ref}\n\nहमारी टीम आपके अनुरोध की समीक्षा करके यहीं जवाब देगी।\n\nआप 1–2 घंटे बाद फिर से देख सकते हैं।",
+            'hi-Latn' => "Wait karne ke liye dhanyavaad. Aapki support request successfully register ho gayi hai.\n\nTicket ID: #{ref}\n\nHamari team aapki request review karke yahin reply karegi.\n\nAap 1–2 ghante baad dobara check kar sakte hain.",
         ],
         'ticket_existing' => [
             'en' => 'Your request is already with our team as ticket {ref}. They will reply in this chat.',
@@ -174,63 +180,26 @@ class SupportBot
         return self::transferSupportTeam($conversation, $message, $lang, $reason, $prefix);
     }
 
-    /** Escalate to support team with a 1-minute live wait window before announcing the ticket. */
+    /**
+     * Start the senior-support process (the real 60-second window). Staff-only requests keep their category and
+     * summary for the ticket that follows if nobody joins. Duplicate triggers return the running escalation.
+     */
     public static function transferSupportTeam(Conversation $conversation, Message $message, string $lang, string $source, string $prefix = '', string $category = 'general', ?array $summary = null): ?Message
     {
-        // A ticket exists at once when nobody can take the chat live (team offline / outside hours) or when the
-        // request is for staff-only work (billing, domain, account...). When a team member is online the chat
-        // waits in the live queue first; a ticket is added later if nobody joins (see WidgetChatController::syncMessages).
-        $ticket = null;
-        $needsTicketNow = ! ConversationService::teamAvailable($conversation->property) || $category !== 'general' || $summary !== null;
-        if ($needsTicketNow) {
-            try {
-                [$ticket, $created] = TicketService::createOrReuse($conversation, array_filter([
-                    'source' => $source,
-                    'category' => $category,
-                    'summary' => $summary,
-                    'idempotency_key' => 'msg-' . $message->id,
-                ], fn ($v) => $v !== null));
-            } catch (\Throwable $e) {
-                Log::error('Ticket creation failed: ' . $e->getMessage(), ['conversation' => $conversation->id]);
+        try {
+            EscalationService::request($conversation, $source, array_filter([
+                'category' => $category !== 'general' ? $category : null,
+                'summary' => $summary,
+                'source' => $source,
+                'prefix' => $prefix,
+            ], fn ($v) => $v !== null && $v !== ''), $lang);
+        } catch (\Throwable $e) {
+            Log::error('Escalation failed: ' . $e->getMessage(), ['conversation' => $conversation->id]);
 
-                return self::botReply($conversation, $prefix . self::t('ticket_failed', $lang), ['source' => 'escalation_failed'], true);
-            }
+            return self::botReply($conversation, $prefix . self::t('ticket_failed', $lang), ['source' => 'escalation_failed'], true);
         }
 
-        // Automation stops now; the state machine records the escalation. Nothing is announced twice.
-        $newlyQueued = ConversationService::queueForTeam($conversation, $source);
-        $conversation->forceFill(['handler' => 'human', 'handover_at' => $conversation->handover_at ?? now(), 'ai_pending_since' => null])->save();
-        if ($newlyQueued) {
-            \App\Services\Notifier::chatStarted($conversation, $message, $ticket);   // one Telegram alert (deduped)
-            if ($source === 'customer_request') {
-                \App\Services\Notifier::humanRequested($conversation);                   // in-app only: Telegram window already used
-            }
-        }
-
-        return self::escalationNotice($conversation, $ticket, $lang, $prefix);
-    }
-
-    /**
-     * The one place that words an escalation for the customer, from REAL state:
-     *  - team online in working hours -> "sent for review", no promise that anyone is free;
-     *  - team offline / outside hours -> the ticket reference and the working hours (no pretending).
-     * A transfer is never announced as completed: that only happens when an agent joins.
-     */
-    public static function escalationNotice(Conversation $conversation, ?\App\Models\Ticket $ticket, string $lang, string $prefix = ''): ?Message
-    {
-        $available = ConversationService::teamAvailable($conversation->property);
-        if ($available) {
-            $body = self::t('escalated', $lang);
-            $meta = ['source' => 'handover', 'waiting_senior' => true, 'ticket_id' => $ticket?->id];
-        } else {
-            $body = $ticket
-                ? self::t('ticket_created', $lang, ['ref' => $ticket->reference]) . self::hoursNote($conversation->property, $lang)
-                : self::t('escalated', $lang) . self::hoursNote($conversation->property, $lang);
-            $meta = ['source' => 'ticket', 'ticket_id' => $ticket?->id];
-        }
-        $reply = $prefix !== '' ? rtrim($prefix) . "\n\n" . $body : $body;
-
-        return self::botReply($conversation, $reply, $meta, true);
+        return Message::where('conversation_id', $conversation->id)->where('sender_type', 'bot')->orderByDesc('seq')->first();
     }
     public static function transferSeniorDepartment(Conversation $conversation, Message $message, string $lang, string $source, string $prefix = '', string $category = 'general', ?array $summary = null): ?Message
     {
@@ -253,7 +222,7 @@ class SupportBot
             return self::botReply($conversation, $prefix . self::t('ticket_failed', $lang), ['source' => 'escalation_failed'], true);
         }
 
-        return self::botReply($conversation, $prefix . self::t($created ? 'ticket_created' : 'ticket_existing', $lang, ['ref' => $ticket->reference]) . self::hoursNote($conversation->property, $lang), ['source' => 'ticket', 'ticket_id' => $ticket->id], true);
+        return self::botReply($conversation, $prefix . self::t($created ? 'ticket_registered' : 'ticket_existing', $lang, ['ref' => $ticket->reference]) . self::hoursNote($conversation->property, $lang), ['source' => 'ticket', 'ticket_id' => $ticket->id], true);
     }
 
     /**

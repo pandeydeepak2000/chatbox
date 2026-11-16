@@ -238,6 +238,7 @@
         S.screen = S.conversation ? 'chat' : 'start';
         render();
         schedulePoll();
+        if (S.open) beginSession();
       }
     });
   }
@@ -248,28 +249,41 @@
     S.lastSeq = S.messages.reduce(function (m, x) { return Math.max(m, x.seq || 0); }, c.last_seq || 0);
     S.handler = c.handler || 'ai'; S.openTicket = c.open_ticket || null; S.aiPending = !!c.ai_pending;
     S.waitingSenior = !!c.waiting_senior;
-    S.seniorWaitRemaining = 0; // no countdown: the server never promises a time
+    setSeniorWait(c.waiting_senior, c.senior_wait_remaining);
   }
 
+  // The countdown is a display of the SERVER's remaining seconds (deadline_at - now). Every response re-syncs it, so
+  // refreshing, reconnecting, opening a second tab or signing in can never restart it.
+  function fmtClock(sec) {
+    sec = Math.max(0, Math.round(sec));
+    return (sec < 600 ? '0' : '') + Math.floor(sec / 60) + ':' + (sec % 60 < 10 ? '0' : '') + (sec % 60);
+  }
+  function setSeniorWait(waiting, remaining) {
+    S.waitingSenior = !!waiting;
+    if (S.waitingSenior && typeof remaining === 'number') {
+      S.seniorEndsAt = Date.now() + remaining * 1000;
+      S.seniorWaitRemaining = remaining;
+      startSeniorTimer();
+    } else {
+      S.seniorEndsAt = 0; S.seniorWaitRemaining = 0;
+      clearInterval(S.seniorTimer);
+    }
+  }
   function startSeniorTimer() {
     clearInterval(S.seniorTimer);
-    if (!S.waitingSenior || S.seniorWaitRemaining <= 0) return;
+    S.seniorZeroPolled = false;
+    if (!S.waitingSenior || !S.seniorEndsAt) return;
     S.seniorTimer = setInterval(function () {
-      if (S.seniorWaitRemaining > 0) {
-        S.seniorWaitRemaining--;
-        var el = root ? root.getElementById('ehc-senior-timer') : null;
-        if (el) {
-          el.textContent = '0:' + (S.seniorWaitRemaining < 10 ? '0' : '') + S.seniorWaitRemaining;
-        }
-      }
-      if (S.seniorWaitRemaining <= 0) {
-        clearInterval(S.seniorTimer);
-        S.waitingSenior = false;
+      var left = Math.max(0, Math.ceil((S.seniorEndsAt - Date.now()) / 1000));
+      S.seniorWaitRemaining = left;
+      var el = root ? root.getElementById('ehc-senior-timer') : null;
+      if (el) el.textContent = fmtClock(left);
+      if (left <= 0 && !S.seniorZeroPolled) {
+        S.seniorZeroPolled = true;   // ask the server right away: it finalises the ticket the moment the deadline passes
         poll();
       }
-    }, 1000);
+    }, 250);
   }
-
   function refreshCustomer() {
     return call('GET', '/customer/me?' + qs({ property_key: cfg.propertyKey })).then(function (r) {
       if (r.ok) { S.customer = r.json.data.customer; S.tickets = r.json.data.tickets || []; S.conversations = r.json.data.conversations || []; }
@@ -301,19 +315,11 @@
           }
         });
         if (d.waiting_senior !== undefined) {
-          if (S.waitingSenior !== !!d.waiting_senior) {
-            S.waitingSenior = !!d.waiting_senior;
-            changed = true;
+          if (S.waitingSenior !== !!d.waiting_senior) changed = true;
+          // Re-sync only when the drift is noticeable, so the number never jumps back and forth between polls.
+          if (!d.waiting_senior || !S.seniorEndsAt || Math.abs((S.seniorEndsAt - Date.now()) / 1000 - d.senior_wait_remaining) > 1.5) {
+            setSeniorWait(d.waiting_senior, d.senior_wait_remaining);
           }
-        }
-        if (typeof d.senior_wait_remaining === 'number' && d.senior_wait_remaining > 0) {
-          if (Math.abs(S.seniorWaitRemaining - d.senior_wait_remaining) > 3) {
-            S.seniorWaitRemaining = d.senior_wait_remaining;
-          }
-          startSeniorTimer();
-        } else if (!d.waiting_senior) {
-          S.seniorWaitRemaining = 0;
-          clearInterval(S.seniorTimer);
         }
         var sig = JSON.stringify([!!d.ai_pending, d.handler, d.open_ticket, d.status, !!d.waiting_senior]);
         if (sig !== S.syncSig) { S.syncSig = sig; changed = true; }
@@ -341,9 +347,20 @@
   });
 
   // ------------------------------------------------------------------ actions
+  // The live chat starts when the visitor opens it: the server records the session and queues the team alert at once,
+  // before e-mail, PIN or any question. Idempotent on the server, so repeated opens / refreshes send one alert only.
+  function beginSession() {
+    if (!S.visitor || !S.visitor.token || S.conversation || S.sessionBegunFor === S.visitor.token) return;
+    S.sessionBegunFor = S.visitor.token;
+    call('POST', '/session', { property_key: cfg.propertyKey, visitor_token: S.visitor.token, department_id: S.chosenDeptId || undefined }).then(function (r) {
+      if (!r.ok) S.sessionBegunFor = null; // allow another try
+    });
+  }
+
   function toggle(open) {
     S.open = open;
     if (open) {
+      beginSession();
       S.unread = 0;
       if (checkSessionTimeout()) {
         init();
@@ -401,7 +418,8 @@
     call('POST', '/conversations/' + encodeURIComponent(S.conversation.id) + '/escalate', { visitor_token: S.visitor.token, idempotency_key: key }).then(function (r) {
       if (r.ok) {
         var dd = r.json.data;
-        S.notice = ''; // the chat itself shows the real status message
+        setSeniorWait(dd.waiting_senior, dd.senior_wait_remaining);
+        S.notice = '';
         S.error = '';
         if (S.customer) refreshCustomer();
       } else {
@@ -829,11 +847,13 @@
       })));
     }
 
-    // Honest status only: shown while the request really waits for a team member. No countdown, no promised time.
+    // Real countdown: the seconds left of the server-side window in which a team member can join.
     var seniorBanner = (S.waitingSenior && !S.openTicket) ? h('div', {
-      style: 'background:#eff6ff;color:#1e40af;border-bottom:1px solid #bfdbfe;padding:8px 14px;font-size:12px;font-weight:500;'
-    }, h('span', { text: 'Your request is with our support team. Please stay in this chat.' })) : null;
-
+      style: 'background:#eff6ff;color:#1e40af;border-bottom:1px solid #bfdbfe;padding:8px 14px;font-size:12.5px;font-weight:500;display:flex;align-items:center;justify-content:space-between;gap:10px;'
+    },
+      h('span', { text: 'Connecting you with our senior support team…' }),
+      h('span', { id: 'ehc-senior-timer', 'aria-label': 'Time remaining', style: 'font-variant-numeric:tabular-nums;font-weight:700;background:#dbeafe;padding:2px 10px;border-radius:12px;', text: fmtClock(Math.max(0, Math.ceil(((S.seniorEndsAt || 0) - Date.now()) / 1000))) })
+    ) : null;
     return h('div', { style: 'display:flex;flex-direction:column;flex:1;min-height:0' },
       seniorBanner,
       S.openTicket ? h('div', { class: 'banner', text: 'Ticket ' + S.openTicket.reference + ' · ' + S.openTicket.status_label + ' — replies appear here and under Tickets.' }) : null,

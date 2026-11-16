@@ -15,7 +15,8 @@ ChatBox puts a chat button on your websites. When a customer asks something:
 
 1. **FAQ match** → the answer is sent instantly at no AI cost.
 2. **Approved knowledge** → the AI assistant answers, but only from documents your team approved (if AI is switched on).
-3. **No reliable answer, or the customer asks for a person** → during working hours with someone online the chat goes **live to your team**; otherwise a **support ticket** is created (e.g. `AMB-000001`) and your team is alerted on Telegram.
+0. **The moment a visitor opens the live chat** (before e-mail, PIN or any question) a chat record (e.g. `CH-AMB-7K2QXD`) is created and your Telegram group is alerted: *"New live chat started"*, with company, website, department (if chosen), customer ("Visitor — verification pending" until they sign in), start time and a sign-in-protected link.
+3. **No reliable answer, a staff-only request, or the customer asks for a person** → the **60-second senior-support window** starts: the customer sees *"Please wait a moment. We're connecting you with our senior support team."* with a live 01:00 → 00:00 countdown, and your team is alerted on Telegram. If a team member clicks **Take over** before 00:00 the countdown stops and they are in the same chat. If nobody does, **one ticket** (e.g. `AMB-000123`) is registered automatically and shown in the chat.
 4. Your team replies from the dashboard. The customer sees the reply in the chat window, on any device, using their **e-mail + 6-digit Support PIN**.
 
 Every chat also creates a **lead**, so sales enquiries are never lost.
@@ -101,7 +102,7 @@ Assistant: Set a 6-digit Support PIN. Next time, your e-mail + this PIN opens al
 | "How do I reset my client area password?" | Matches an FAQ → instant answer |
 | "Is shared hosting refundable?" | AI answers from the approved *Refund policy* (if AI is on) |
 | "My website shows a 500 error after installing a plugin" | No reliable answer → ticket `AMB-000001` is created, Rahul sees the reference, the team is alerted |
-| "Talk to a human" (or the **Talk to a human** button) | Working hours + someone online → the customer is told the request was sent to the senior team for review and to stay in the chat (no promise of a time; the chat says an agent has joined only when one really does). Otherwise → ticket, and the assistant states the working hours. |
+| "Talk to a human" (or the **Talk to a human** button) | Inside working hours → the real **60-second window** (see section 6.2.1): countdown for the customer, Telegram alert for your team. An agent who takes over in time stops it; otherwise one ticket is registered. Outside working hours nobody can answer within a minute, so no countdown is shown: the ticket is registered at once and the chat states the working hours. |
 | "Are you a bot?" / "kya aap bot ho?" | A truthful answer that this is an automated assistant and a team member can join; it is not turned into a transfer. |
 | "Please refund my payment" / "renew my domain" / "change my DNS" | The assistant **never** does these. A ticket is created for staff. |
 
@@ -144,6 +145,20 @@ Your start page: open chats, unresolved tickets, new leads, average first respon
 - **Mark as quotation** on a reply you sent with a price: Chandrika gets reminders at **+10 min, +30 min and +2 h** from the time of the quote. A customer reply cancels the remaining reminders.
 
 Example: Rahul writes at 11:00 "What is the price of the Business plan?" in the Sales department. If nobody replies within **30 working minutes**, Aarav gets a Telegram alert (once). Chandrika replies with the price and clicks **Mark as quotation**.
+
+#### 6.2.1 The 60-second senior-support window (exact behaviour)
+
+1. The customer's question cannot be answered reliably (no matching FAQ, AI off or unsure), needs staff action (refund, DNS, renewal…) or the customer asks for a person. The automated replies stop.
+2. The server stores `escalated_at` and `deadline_at = escalated_at + 60 s`, shows the customer the message and a countdown, and queues **one** Telegram alert (*"Senior support needed — customer is waiting … join before 12:01:00 PM"*).
+3. The countdown is the server's remaining time. Refreshing the page, reconnecting, a second tab, pressing the button again or signing in never restarts it and never creates a second escalation.
+4. **A team member clicks Take over before 00:00** → the countdown stops, the chat shows *"Alex from the support team has joined the conversation."* (their real name, only after they really joined), no ticket is created, the full history stays in the same chat.
+5. **Nobody joins** → one ticket is registered automatically and the customer sees *"Thank you for waiting. Your support request has been registered successfully. Ticket ID: #AMB-000123 …"*. The ticket appears under **Tickets** in the chat (for signed-in customers) and in your dashboard, with company, website, department, priority, reason and the conversation.
+6. **If the customer closed the browser**, the scheduler (`chatbox:escalations`, every minute) creates the ticket. With a one-minute cron the ticket can appear up to about 60 seconds after the 60-second deadline (about 2 minutes after the escalation at worst). While the chat is open the widget completes it within a few seconds.
+7. A team member who takes over *after* the ticket exists continues in the same chat; the ticket is already linked to it. If the deadline passed but nothing had finalised it yet, taking over registers the ticket first (once) and then joins.
+
+#### 6.2.2 Telegram reminders for tickets
+
+From the moment a ticket starts waiting for the team (created, reopened, or the customer replied), a Telegram reminder is sent every **30 minutes** (10:00 created → 10:30, 11:00, 11:30, 12:00 …) with company, ticket, website, department, priority, status, how long it has been pending and a sign-in-protected link. Reminders stop at once when the ticket is **resolved or closed**; a reopened ticket starts a new 30-minute count. A ticket that is *waiting for the customer* is not repeated to the team. Each reminder is recorded once per ticket and period (no duplicates, with history).
 
 ### 6.3 Support Tickets
 - Tabs: **Unresolved**, **Assigned to me**, **Unassigned**, **Resolved**, **Closed**.
@@ -200,11 +215,13 @@ All Support PIN customers per website: verification status, chats, tickets, last
 
 | When | What |
 |---|---|
-| Immediately | FAQ answer; ticket + Telegram alert when escalated |
+| Immediately | FAQ answer; Telegram alert when a live chat is opened; Telegram alert + 60-second window when escalated |
+| 60 seconds after an escalation (cron: within 0–60 s after the deadline; open chat: within a few seconds) | If no agent took over: one ticket is registered and the customer is told its number |
+| 30, 60, 90 … minutes after a ticket starts waiting for the team | Telegram reminder per ticket (until resolved or closed) |
 | 30 working minutes without a human reply in a Sales chat | Telegram sales alert (once) |
 | +10 min, +30 min, +2 h after **Mark as quotation** | Reminders to the sales follow-up owner (cancelled by a customer reply) |
 | Every day 10:00 IST | Digest of unresolved tickets and pending tasks |
-| Every minute (cron) | Reminders, AI replies that need more time, document processing, Telegram retries |
+| Every minute (cron) | Escalation deadlines (tickets), ticket reminders, AI replies that need more time, document processing, Telegram retries |
 
 On cPanel all of this runs from **one cron job** (see `CPANEL_DEPLOYMENT.md`). On a local computer run `php artisan schedule:work` in a second window.
 
@@ -228,7 +245,7 @@ On cPanel all of this runs from **one cron job** (see `CPANEL_DEPLOYMENT.md`). O
 
 - **ग्राहक:** चैट में पहले ई-मेल डालता है। नया ई-मेल हो तो 6 बॉक्स में अपना 6 अंकों का Support PIN बनाता है (OTP नहीं चाहिए)। पुराना ई-मेल हो तो वही PIN डालकर किसी भी फ़ोन या ब्राउज़र पर अपनी पुरानी चैट और टिकट देख सकता है।
 - **PIN भूल गए:** ग्राहक खुद "Forgot PIN?" से ई-मेल पर कोड लेकर नया PIN बना सकता है। या admin **Customers → Reset PIN** से नया PIN सेट कर सकता है (पहले पहचान पक्की करें)। PIN किसी को दिखता नहीं।
-- **जवाब कैसे आता है:** FAQ हो तो तुरंत जवाब, नहीं तो approved knowledge से AI जवाब देता है। भरोसेमंद जवाब न हो या ग्राहक इंसान से बात करना चाहे, तो live chat या टिकट (`AMB-000001`) बनता है और Telegram अलर्ट जाता है।
+- **जवाब कैसे आता है:** चैट खुलते ही Telegram अलर्ट जाता है। FAQ हो तो तुरंत जवाब, नहीं तो approved knowledge से AI जवाब देता है। भरोसेमंद जवाब न हो या ग्राहक इंसान से बात करना चाहे, तो 60 सेकंड की सीनियर-सपोर्ट विंडो (काउंटडाउन के साथ) शुरू होती है। इस बीच कोई एजेंट Take over कर ले तो काउंटडाउन रुक जाता है; नहीं तो अपने आप एक टिकट (`AMB-000001`) बनता है। टिकट के बाद हर 30 मिनट पर Telegram रिमाइंडर जाता है, जब तक टिकट resolved/closed न हो।
 - **टीम:** Live Inbox में जवाब, Take over / Resume AI, internal note, transfer। टिकट में पहला जवाब देने वाला owner बनता है। Leads Excel/CSV में export होते हैं।
 - **Super admin:** सिर्फ़ Platform पेज (companies, plans, AI prices) देखता है। कंपनी के अंदर काम करने के लिए उस कंपनी के owner account से login करें।
 - **Bot कभी नहीं करता:** refund, payment मार्क करना, renewal, DNS बदलना, suspend करना या password reset।

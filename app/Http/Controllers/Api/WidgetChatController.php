@@ -17,8 +17,10 @@ use App\Models\Visitor;
 use App\Services\Ai\SupportBot;
 use App\Services\AttachmentService;
 use App\Services\BusinessHours;
+use App\Services\ChatSessionService;
 use App\Services\ConversationService;
 use App\Services\ConversationStateMachine;
+use App\Services\EscalationService;
 use App\Services\CustomerAuthService;
 use App\Services\LeadCaptureService;
 use App\Services\Notifier;
@@ -43,8 +45,6 @@ use Pusher\Pusher;
  */
 class WidgetChatController extends Controller
 {
-    /** Seconds in the team queue before the ticket reference is shown to the customer. */
-    private const QUEUE_NOTICE_SECONDS = 60;
 
     public function init(Request $request): JsonResponse
     {
@@ -181,6 +181,11 @@ class WidgetChatController extends Controller
             return $this->forbiddenOrigin();
         }
 
+        // The window may have expired while this widget is open: finalise it now (one ticket, one message), the
+        // scheduler does the same for visitors who are gone. Both paths are idempotent.
+        EscalationService::finalizeIfDue($conversation);
+        $conversation->refresh();
+
         $afterSeq = $request->query('after_seq');
         if ($afterSeq === null && $request->filled('after_id')) {
             $afterSeq = Message::where('id', $request->query('after_id'))->where('conversation_id', $conversation->id)->value('seq');
@@ -202,36 +207,9 @@ class WidgetChatController extends Controller
         }
         $openTicket = Ticket::where('open_conversation_id', $conversation->id)->first();
 
-        // Waiting for the team: the customer sees an honest "sent for review" note. If nobody has joined after
-        // QUEUE_NOTICE_SECONDS the ticket reference is shown, so nothing is promised that did not happen.
-        $ticketMessageSent = $conversation->messages()->where('metadata->source', 'ticket')->exists();
-        $isWaitingSenior = $conversation->handler === 'human'
-            && ConversationStateMachine::isWaitingForAgent($conversation)
-            && ! $conversation->first_human_response_at
-            && ! $ticketMessageSent;
-
-        if ($isWaitingSenior && $conversation->handover_at && $conversation->handover_at->lte(now()->subSeconds(self::QUEUE_NOTICE_SECONDS))) {
-            try {
-                if (! $openTicket) {
-                    [$openTicket, $created] = TicketService::createOrReuse($conversation, ['source' => 'transfer_timeout']);
-                }
-                if ($openTicket) {
-                    $lang = $conversation->language ?? 'en';
-                    SupportBot::botReply($conversation, SupportBot::t('ticket_created', $lang, ['ref' => $openTicket->reference]) . SupportBot::hoursNote($conversation->property, $lang), ['source' => 'ticket', 'ticket_id' => $openTicket->id], true);
-                    $ticketMessageSent = true;
-                    $query = $conversation->messages()->visibleToCustomer()->with('sender:id,name');
-                    if ($afterSeq !== null && is_numeric($afterSeq)) {
-                        $query->where('seq', '>', (int) $afterSeq);
-                    }
-                    $newMessages = $query->take(50)->get();
-                }
-            } catch (\Throwable $e) {
-                Log::warning('1-minute senior department ticket creation fallback: ' . $e->getMessage());
-            }
-        }
-
-        $customerOpenTicket = $ticketMessageSent ? $openTicket : null;
-        $seniorWaitRemaining = 0; // no countdown is shown any more (kept in the payload for older widget copies)
+        // Countdown: remaining time comes from the server clock and the stored deadline, never from the browser,
+        // so a refresh, reconnect or second tab can never restart it.
+        $escalation = EscalationService::clientState($conversation);
 
         return response()->json([
             'success' => true,
@@ -241,11 +219,14 @@ class WidgetChatController extends Controller
                 'status' => $conversation->status,
                 'handler' => $conversation->handler,
                 'ai_pending' => $conversation->ai_pending_since !== null && $conversation->ai_pending_since->gt(now()->subMinutes(3)),
-                'open_ticket' => $customerOpenTicket?->toCustomerArray(),
+                'open_ticket' => $escalation['waiting'] ? null : $openTicket?->toCustomerArray(),
                 'assigned_agent' => $assignedAgent,
                 'started_at' => $conversation->created_at?->toIso8601String(),
-                'waiting_senior' => $isWaitingSenior && ! $ticketMessageSent,
-                'senior_wait_remaining' => $seniorWaitRemaining,
+                'waiting_senior' => $escalation['waiting'],
+                'senior_wait_remaining' => $escalation['remaining'],
+                'senior_deadline_at' => $escalation['deadline_at'],
+                'server_time' => $escalation['server_time'],
+                'agent_active' => $conversation->support_state === ConversationStateMachine::AGENT_ACTIVE,
             ],
         ]);
     }
@@ -389,11 +370,15 @@ class WidgetChatController extends Controller
             'email' => $visitor->email ?: self::emailIn($content),
         ]);
 
+        // The visitor's live chat session (and its Telegram alert) already exists since the chat was opened,
+        // before e-mail/PIN. A client that never called /session (older widget copy, API) gets it here; either way
+        // the alert is queued once only.
+        $session = ChatSessionService::current($property, $visitor) ?? ChatSessionService::begin($property, $visitor, $departmentId, $customer)[0];
+        ChatSessionService::attach($session, $conversation);
+
         $department = $departmentId ? Department::find($departmentId) : null;
         if ($department && str_contains(mb_strtolower($department->name), 'sales')) {
             Notifier::salesInquiry($conversation);
-        } else {
-            Notifier::chatStarted($conversation, $message);
         }
 
         $botReply = SupportBot::handle($conversation, $message);
@@ -411,6 +396,39 @@ class WidgetChatController extends Controller
                 'bot_reply' => $botReply ?? $greeting,
             ],
         ], 201);
+    }
+
+    /**
+     * The visitor opened the live chat. Creates (or reuses) the chat session and queues the Telegram alert, BEFORE
+     * e-mail, PIN or any question. Idempotent: refreshes and repeated calls never send a second alert.
+     */
+    public function beginSession(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'property_key' => ['required', 'string', 'max:100'],
+            'visitor_token' => ['required', 'string', 'max:100'],
+            'department_id' => ['nullable', 'string', 'max:64'],
+        ]);
+        $property = $this->activePropertyByKey($validated['property_key']);
+        if (! $property) {
+            return response()->json(['success' => false, 'message' => 'Invalid or inactive property key.'], 404);
+        }
+        if (! WidgetOrigin::allows($request, $property, required: true)) {
+            return $this->forbiddenOrigin();
+        }
+        $visitor = Visitor::where('property_id', $property->id)->where('visitor_token', $validated['visitor_token'])->first();
+        if (! $visitor) {
+            return response()->json(['success' => false, 'message' => 'Unknown visitor.'], 404);
+        }
+        if ($visitor->is_blocked) {
+            return response()->json(['success' => false, 'message' => 'Access denied: This visitor has been blocked.'], 403);
+        }
+        // Only departments of THIS website are accepted.
+        $departmentId = ! empty($validated['department_id']) ? Department::where('id', $validated['department_id'])->where('property_id', $property->id)->value('id') : null;
+
+        [$session, $created] = ChatSessionService::begin($property, $visitor, $departmentId, CustomerAuthService::resolve($request, $property));
+
+        return response()->json(['success' => true, 'data' => ['reference' => $session->reference, 'created' => $created]]);
     }
 
     public function sendMessage(Request $request): JsonResponse
@@ -555,12 +573,9 @@ class WidgetChatController extends Controller
         }
 
         $lang = $conversation->language ?? 'en';
-        // Already with the team (double click, retry, second tab): report the real state, announce nothing new.
-        $alreadyHandled = ConversationStateMachine::isWaitingForAgent($conversation)
-            || in_array($conversation->support_state, [ConversationStateMachine::AGENT_ACTIVE, ConversationStateMachine::WAITING_FOR_CUSTOMER], true);
         try {
-            // Key scoped to this conversation, so a reused key can never return another chat's ticket.
-            $result = ConversationService::requestHuman($conversation, 'esc-' . substr(hash('sha256', $conversation->id . '|' . $validated['idempotency_key']), 0, 48), 'customer_request');
+            // Starts the real 60-second window, or returns the one already running (double click, refresh, retry).
+            $result = ConversationService::requestHuman($conversation, null, 'customer_request');
         } catch (\Throwable $e) {
             Log::error('Widget escalation failed: ' . $e->getMessage());
 
@@ -568,24 +583,22 @@ class WidgetChatController extends Controller
         }
 
         $conversation->refresh();
-        if (! $alreadyHandled) {
-            $conversation->update(['handler' => 'human', 'handover_at' => $conversation->handover_at ?? now(), 'ai_pending_since' => null]);
-            \App\Services\Notifier::chatStarted($conversation, $conversation->messages()->latest('seq')->first(), $result['ticket'] ?? null);
-            SupportBot::escalationNotice($conversation, $result['ticket'], $lang);
-        }
+        $state = EscalationService::clientState($conversation);
 
         return response()->json([
             'success' => true,
             'data' => [
                 'mode' => $result['mode'],
-                // The reference is shown only when a ticket really exists AND the chat said so (team offline).
-                'ticket' => ($result['mode'] === 'ticket' && $result['ticket']) ? $result['ticket']->toCustomerArray() : null,
                 'created' => $result['created'],
-                'waiting_senior' => ConversationStateMachine::isWaitingForAgent($conversation->fresh()),
-                'senior_wait_remaining' => 0,
+                'ticket' => ($result['ticket'] && ! $state['waiting']) ? $result['ticket']->toCustomerArray() : null,
+                'waiting_senior' => $state['waiting'],
+                'senior_wait_remaining' => $state['remaining'],
+                'senior_deadline_at' => $state['deadline_at'],
+                'server_time' => $state['server_time'],
             ],
         ]);
     }
+
     public function typing(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -790,20 +803,19 @@ class WidgetChatController extends Controller
 
     private function conversationPayload(Conversation $conversation): array
     {
+        EscalationService::finalizeIfDue($conversation);
+        $conversation->refresh();
         $data = $conversation->only(['id', 'property_id', 'department_id', 'status', 'handler', 'rating', 'created_at', 'last_message_at', 'last_seq']);
         $data['messages'] = $conversation->messages()->visibleToCustomer()->with('sender:id,name')->reorder()->orderByDesc('seq')->limit(300)->get()->sortBy('seq')->values(); // latest 300 only
 
-        $ticketMessageSent = $conversation->messages()->where('metadata->source', 'ticket')->exists();
-        $isWaitingSenior = $conversation->handler === 'human'
-            && ConversationStateMachine::isWaitingForAgent($conversation)
-            && ! $conversation->first_human_response_at
-            && ! $ticketMessageSent;
-
+        $escalation = EscalationService::clientState($conversation);
         $openTicket = Ticket::where('open_conversation_id', $conversation->id)->first();
-        $data['open_ticket'] = $ticketMessageSent ? $openTicket?->toCustomerArray() : null;
+        $data['open_ticket'] = $escalation['waiting'] ? null : $openTicket?->toCustomerArray();
         $data['ai_pending'] = $conversation->ai_pending_since !== null;
-        $data['waiting_senior'] = $isWaitingSenior && ! $ticketMessageSent;
-        $data['senior_wait_remaining'] = 0;
+        $data['waiting_senior'] = $escalation['waiting'];
+        $data['senior_wait_remaining'] = $escalation['remaining'];   // authoritative server-side remaining seconds
+        $data['senior_deadline_at'] = $escalation['deadline_at'];
+        $data['server_time'] = $escalation['server_time'];
         $data['agent_active'] = $conversation->support_state === ConversationStateMachine::AGENT_ACTIVE;
 
         return $data;

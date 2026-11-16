@@ -34,6 +34,7 @@ Route::prefix('v1')->group(function () {
     Route::prefix('widget')->middleware('throttle:widget')->group(function () {
         Route::get('status', [WidgetChatController::class, 'status']);
         Route::post('init', [WidgetChatController::class, 'init'])->middleware('throttle:widget-init');
+        Route::post('session', [WidgetChatController::class, 'beginSession'])->middleware('throttle:widget-init');
         Route::post('start', [WidgetChatController::class, 'startConversation'])->middleware(['throttle:widget-messages', 'throttle:widget-start']);
         Route::post('messages', [WidgetChatController::class, 'sendMessage'])->middleware('throttle:widget-messages');
         Route::post('upload', [WidgetChatController::class, 'uploadAttachment'])->middleware(['throttle:widget-messages', 'throttle:widget-uploads']);

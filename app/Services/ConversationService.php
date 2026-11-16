@@ -27,6 +27,8 @@ class ConversationService
             ])->save();
         }
         if ($by) {
+            // An agent is in: settle a running 60-second window first (joined in time -> no ticket).
+            EscalationService::onAgentJoin($conversation, $by);
             ConversationStateMachine::moveTo($conversation, ConversationStateMachine::AGENT_ACTIVE, $by, 'staff_action');
         } else {
             self::queueForTeam($conversation, 'escalation');
@@ -82,6 +84,7 @@ class ConversationService
 
         // The join notice is real: it is written only when this call actually moved the chat to AGENT_ACTIVE,
         // so a double click or a second agent can never produce a duplicate or invented "joined" message.
+        EscalationService::onAgentJoin($conversation, $user);
         $moved = ConversationStateMachine::moveTo($conversation, ConversationStateMachine::AGENT_ACTIVE, $user, 'agent_joined');
         if ($moved === ConversationStateMachine::CHANGED) {
             $displayName = \App\Http\Controllers\Api\AgentChatController::formatAgentDisplayName($user, $conversation->property);
@@ -134,32 +137,21 @@ class ConversationService
     }
 
     /**
-     * Customer asked for a person. If someone is online within working hours the chat is handed
-     * over live; otherwise a ticket is created (idempotent). Returns what actually happened.
+     * Customer asked for a person (the "Talk to a human" button / message): starts the real 60-second window, or
+     * returns the one already running. Idempotent for duplicate clicks, refreshes and retries.
      *
-     * @return array{mode: string, ticket: ?\App\Models\Ticket, created: bool}
+     * @return array{mode: string, escalation: ?\App\Models\Escalation, ticket: ?\App\Models\Ticket, created: bool}
      */
     public static function requestHuman(Conversation $conversation, ?string $idempotencyKey, string $reason = 'customer_request'): array
     {
-        $conversation->loadMissing('property');
-        self::markHuman($conversation, null);
+        $r = EscalationService::request($conversation, $reason);
+        $esc = $r['escalation'];
 
-        $online = self::teamAvailable($conversation->property);
-
-        if ($online && ! $conversation->openTicket) {
-            Notifier::humanRequested($conversation);
-
-            return ['mode' => 'live', 'ticket' => null, 'created' => false];
-        }
-
-        [$ticket, $created] = TicketService::createOrReuse($conversation, [
-            'source' => $reason,
-            'idempotency_key' => $idempotencyKey,
-        ]);
-        if (! $created) {
-            Notifier::humanRequested($conversation);
-        }
-
-        return ['mode' => 'ticket', 'ticket' => $ticket, 'created' => $created];
+        return [
+            'mode' => ($esc && $esc->isWaiting()) ? 'senior_wait' : 'ticket',
+            'escalation' => $esc,
+            'ticket' => $r['ticket'],
+            'created' => $r['created'],
+        ];
     }
 }
