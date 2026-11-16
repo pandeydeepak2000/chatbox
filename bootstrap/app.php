@@ -22,6 +22,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'role' => EnsureRole::class,
+            'company.data' => \App\Http\Middleware\DenyPlatformAdmin::class,
             'bot.shield' => \App\Http\Middleware\AntiBotShield::class,
             'secure.headers' => \App\Http\Middleware\SecurityHeaders::class,
         ]);

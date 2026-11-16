@@ -129,7 +129,7 @@ Route::prefix('v1')->group(function () {
         Route::delete('faqs/{id}', [PropertyController::class, 'destroyFaq']); // website admins allowed (checked in controller)
 
         // Real-Time Chat Workspace (Live Inbox)
-        Route::prefix('chat')->group(function () {
+        Route::prefix('chat')->middleware('company.data')->group(function () {
             Route::post('upload', [AgentChatController::class, 'uploadAttachment']);
             Route::post('visitors/{id}/block', [AgentChatController::class, 'toggleBlockVisitor']);
             Route::get('stats', [AgentChatController::class, 'stats']);
@@ -146,57 +146,57 @@ Route::prefix('v1')->group(function () {
         });
 
         // Support tickets
-        Route::get('tickets', [TicketController::class, 'index']);
-        Route::post('tickets', [TicketController::class, 'store']);
-        Route::get('tickets/{id}', [TicketController::class, 'show']);
-        Route::post('tickets/{id}/reply', [TicketController::class, 'reply']);
-        Route::post('tickets/{id}/notes', [TicketController::class, 'note']);
-        Route::match(['put', 'patch'], 'tickets/{id}', [TicketController::class, 'update']);
-        Route::post('tickets/{id}/update', [TicketController::class, 'update']);
+        Route::get('tickets', [TicketController::class, 'index'])->middleware('company.data');
+        Route::post('tickets', [TicketController::class, 'store'])->middleware('company.data');
+        Route::get('tickets/{id}', [TicketController::class, 'show'])->middleware('company.data');
+        Route::post('tickets/{id}/reply', [TicketController::class, 'reply'])->middleware('company.data');
+        Route::post('tickets/{id}/notes', [TicketController::class, 'note'])->middleware('company.data');
+        Route::match(['put', 'patch'], 'tickets/{id}', [TicketController::class, 'update'])->middleware('company.data');
+        Route::post('tickets/{id}/update', [TicketController::class, 'update'])->middleware('company.data');
 
         // Human takeover / AI control / internal notes / quotations
-        Route::post('chat/conversations/{id}/takeover', [TicketController::class, 'takeOver']);
-        Route::post('chat/conversations/{id}/resume-ai', [TicketController::class, 'resumeAi']);
-        Route::post('chat/conversations/{id}/notes', [TicketController::class, 'conversationNote']);
-        Route::post('chat/messages/{id}/quotation', [TicketController::class, 'markQuotation']);
+        Route::post('chat/conversations/{id}/takeover', [TicketController::class, 'takeOver'])->middleware('company.data');
+        Route::post('chat/conversations/{id}/resume-ai', [TicketController::class, 'resumeAi'])->middleware('company.data');
+        Route::post('chat/conversations/{id}/notes', [TicketController::class, 'conversationNote'])->middleware('company.data');
+        Route::post('chat/messages/{id}/quotation', [TicketController::class, 'markQuotation'])->middleware('company.data');
 
         // Notifications and follow-up tasks
-        Route::get('notifications', [NotificationController::class, 'index']);
-        Route::post('notifications/read-all', [NotificationController::class, 'markAllRead']);
-        Route::post('notifications/{id}/read', [NotificationController::class, 'markRead']);
-        Route::get('tasks', [NotificationController::class, 'tasks']);
-        Route::post('tasks/{id}/complete', [NotificationController::class, 'completeTask']);
+        Route::get('notifications', [NotificationController::class, 'index'])->middleware('company.data');
+        Route::post('notifications/read-all', [NotificationController::class, 'markAllRead'])->middleware('company.data');
+        Route::post('notifications/{id}/read', [NotificationController::class, 'markRead'])->middleware('company.data');
+        Route::get('tasks', [NotificationController::class, 'tasks'])->middleware('company.data');
+        Route::post('tasks/{id}/complete', [NotificationController::class, 'completeTask'])->middleware('company.data');
 
         // Telegram channels (company admins)
-        Route::get('settings/telegram', [NotificationController::class, 'channels']);
-        Route::post('settings/telegram', [NotificationController::class, 'saveChannel']);
-        Route::post('settings/telegram/{id}', [NotificationController::class, 'saveChannel']);
-        Route::delete('settings/telegram/{id}', [NotificationController::class, 'deleteChannel']);
-        Route::post('settings/telegram/{id}/test', [NotificationController::class, 'testChannel']);
+        Route::get('settings/telegram', [NotificationController::class, 'channels'])->middleware('company.data');
+        Route::post('settings/telegram', [NotificationController::class, 'saveChannel'])->middleware('company.data');
+        Route::post('settings/telegram/{id}', [NotificationController::class, 'saveChannel'])->middleware('company.data');
+        Route::delete('settings/telegram/{id}', [NotificationController::class, 'deleteChannel'])->middleware('company.data');
+        Route::post('settings/telegram/{id}/test', [NotificationController::class, 'testChannel'])->middleware('company.data');
 
         // Knowledge base
-        Route::get('knowledge', [KnowledgeController::class, 'index']);
-        Route::post('knowledge/manual', [KnowledgeController::class, 'storeManual']);
-        Route::post('knowledge/upload', [KnowledgeController::class, 'upload']);
-        Route::post('knowledge/search-test', [KnowledgeController::class, 'testSearch']);
-        Route::get('knowledge/{id}', [KnowledgeController::class, 'show']);
-        Route::post('knowledge/{id}/approve', [KnowledgeController::class, 'approve']);
-        Route::post('knowledge/{id}/reject', [KnowledgeController::class, 'reject']);
-        Route::post('knowledge/{id}/archive', [KnowledgeController::class, 'archive']);
+        Route::get('knowledge', [KnowledgeController::class, 'index'])->middleware('company.data');
+        Route::post('knowledge/manual', [KnowledgeController::class, 'storeManual'])->middleware('company.data');
+        Route::post('knowledge/upload', [KnowledgeController::class, 'upload'])->middleware('company.data');
+        Route::post('knowledge/search-test', [KnowledgeController::class, 'testSearch'])->middleware('company.data');
+        Route::get('knowledge/{id}', [KnowledgeController::class, 'show'])->middleware('company.data');
+        Route::post('knowledge/{id}/approve', [KnowledgeController::class, 'approve'])->middleware('company.data');
+        Route::post('knowledge/{id}/reject', [KnowledgeController::class, 'reject'])->middleware('company.data');
+        Route::post('knowledge/{id}/archive', [KnowledgeController::class, 'archive'])->middleware('company.data');
 
         // AI settings, budget and usage
-        Route::get('ai/settings', [KnowledgeController::class, 'aiSettings']);
-        Route::post('ai/settings', [KnowledgeController::class, 'saveAiSettings']);
-        Route::get('ai/usage', [KnowledgeController::class, 'aiUsage']);
+        Route::get('ai/settings', [KnowledgeController::class, 'aiSettings'])->middleware('company.data');
+        Route::post('ai/settings', [KnowledgeController::class, 'saveAiSettings'])->middleware('company.data');
+        Route::get('ai/usage', [KnowledgeController::class, 'aiUsage'])->middleware('company.data');
         Route::post('ai/prices', [KnowledgeController::class, 'savePrice']);
 
         // Company, websites, analytics
-        Route::get('company', [WorkspaceController::class, 'company']);
+        Route::get('company', [WorkspaceController::class, 'company'])->middleware('company.data');
         Route::post('company', [WorkspaceController::class, 'saveCompany']);
         Route::post('websites/{id}/settings', [WorkspaceController::class, 'saveWebsite']);
         Route::get('websites/{id}/staff', [WorkspaceController::class, 'websiteStaff']);
         Route::post('websites/{id}/staff', [WorkspaceController::class, 'setWebsiteStaff']);
-        Route::get('analytics', [WorkspaceController::class, 'analytics']);
+        Route::get('analytics', [WorkspaceController::class, 'analytics'])->middleware('company.data');
 
         // Platform super admin: plans and subscriptions
         Route::get('platform/overview', [PlatformController::class, 'overview'])->middleware('role:super_admin');
@@ -214,20 +214,20 @@ Route::prefix('v1')->group(function () {
 
         // Leads Management (company + website scoped)
         // Website customers (Support PIN accounts): list, administrator PIN reset, unlock.
-        Route::get('customers', [CustomerController::class, 'index']);
-        Route::post('customers/{id}/reset-pin', [CustomerController::class, 'resetPin']);
-        Route::post('customers/{id}/unlock', [CustomerController::class, 'unlock']);
-        Route::get('leads', [LeadController::class, 'index']);
-        Route::get('leads/meta', [LeadController::class, 'meta']);
-        Route::get('leads/export', [LeadController::class, 'export']);
-        Route::get('leads/{id}', [LeadController::class, 'show']);
-        Route::match(['put', 'patch'], 'leads/{id}', [LeadController::class, 'update']);
-        Route::post('leads/{id}/update', [LeadController::class, 'update']); // hosts that block PUT/PATCH
-        Route::post('leads/{id}/notes', [LeadController::class, 'addNote']);
-        Route::delete('leads/{id}', [LeadController::class, 'destroy'])->middleware('role:admin,super_admin');
+        Route::get('customers', [CustomerController::class, 'index'])->middleware('company.data');
+        Route::post('customers/{id}/reset-pin', [CustomerController::class, 'resetPin'])->middleware('company.data');
+        Route::post('customers/{id}/unlock', [CustomerController::class, 'unlock'])->middleware('company.data');
+        Route::get('leads', [LeadController::class, 'index'])->middleware('company.data');
+        Route::get('leads/meta', [LeadController::class, 'meta'])->middleware('company.data');
+        Route::get('leads/export', [LeadController::class, 'export'])->middleware('company.data');
+        Route::get('leads/{id}', [LeadController::class, 'show'])->middleware('company.data');
+        Route::match(['put', 'patch'], 'leads/{id}', [LeadController::class, 'update'])->middleware('company.data');
+        Route::post('leads/{id}/update', [LeadController::class, 'update'])->middleware('company.data'); // hosts that block PUT/PATCH
+        Route::post('leads/{id}/notes', [LeadController::class, 'addNote'])->middleware('company.data');
+        Route::delete('leads/{id}', [LeadController::class, 'destroy'])->middleware(['role:admin,super_admin', 'company.data']);
 
         // Legacy visitor-based CRM endpoints (kept for the current dashboard; superseded by /leads)
-        Route::prefix('crm')->group(function () {
+        Route::prefix('crm')->middleware('company.data')->group(function () {
             Route::get('leads/export', [AgentChatController::class, 'exportLeads']);
             Route::get('leads', [AgentChatController::class, 'leads']);
             Route::put('leads/{id}', [AgentChatController::class, 'updateLead']);
