@@ -728,16 +728,6 @@
       body.appendChild(meSay(S.chosenDeptName));
     }
 
-    if (S.conversations && S.conversations.length > 0) {
-      body.appendChild(h('div', { class: 'card' },
-        h('h3', { text: 'Your previous chats' }),
-        S.conversations.slice(0, 3).map(function (c) {
-          return h('button', { class: 'item', onclick: function () { openConversation(c.id); } },
-            h('div', { text: c.preview || 'Conversation' }),
-            h('div', { class: 'muted', text: new Date(c.last_message_at || c.created_at).toLocaleString() }));
-        })));
-    }
-
     var msgInput = h('input', {
       type: 'text',
       required: true,
