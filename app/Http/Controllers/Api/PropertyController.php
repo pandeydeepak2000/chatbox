@@ -421,6 +421,112 @@ class PropertyController extends Controller
     }
 
     /**
+     * Bulk import FAQs from CSV file or raw CSV text.
+     */
+    public function importFaqsCsv(Request $request, string $id): JsonResponse
+    {
+        $property = $this->findTenantProperty($request, $id);
+        abort_unless($request->user()->canManageProperty($property), 403, 'Forbidden.');
+
+        $request->validate([
+            'file' => ['nullable', 'file', 'max:5120'],
+            'csv_text' => ['nullable', 'string', 'max:2000000'],
+            'replace_existing' => ['nullable', 'boolean'],
+        ]);
+
+        $rows = [];
+        if ($request->hasFile('file')) {
+            $path = $request->file('file')->getRealPath();
+            if (($handle = fopen($path, 'r')) !== false) {
+                while (($data = fgetcsv($handle, 0, ',', '"', '\\')) !== false) {
+                    $rows[] = $data;
+                }
+                fclose($handle);
+            }
+        } elseif ($request->filled('csv_text')) {
+            $stream = fopen('php://memory', 'r+');
+            fwrite($stream, $request->input('csv_text'));
+            rewind($stream);
+            while (($data = fgetcsv($stream, 0, ',', '"', '\\')) !== false) {
+                $rows[] = $data;
+            }
+            fclose($stream);
+        } else {
+            return response()->json(['success' => false, 'message' => 'Please provide a CSV file or csv_text.'], 422);
+        }
+
+        if (empty($rows)) {
+            return response()->json(['success' => false, 'message' => 'Uploaded CSV file was empty.'], 422);
+        }
+
+        // Determine header indices
+        $header = array_map(fn($col) => strtolower(trim((string)$col)), array_shift($rows));
+        $catIdx = array_search('category', $header);
+        $qIdx = array_search('question', $header);
+        $ansIdx = array_search('answer', $header);
+        $ordIdx = array_search('order', $header);
+        $statusIdx = array_search('status', $header);
+
+        if ($qIdx === false || $ansIdx === false) {
+            $catIdx = 0;
+            $qIdx = 1;
+            $ansIdx = 2;
+            $ordIdx = 3;
+            $statusIdx = 4;
+        }
+
+        $replaceExisting = $request->boolean('replace_existing', true);
+        if ($replaceExisting) {
+            $property->faqs()->delete();
+        }
+
+        $imported = 0;
+        $orderCounter = 1;
+
+        foreach ($rows as $row) {
+            if (empty($row) || !isset($row[$qIdx])) continue;
+            $question = trim((string)($row[$qIdx] ?? ''));
+            $answer = trim((string)($row[$ansIdx] ?? ''));
+            if ($question === '' || $answer === '') continue;
+
+            $category = $catIdx !== false && isset($row[$catIdx]) ? trim((string)$row[$catIdx]) : 'General';
+            if ($category === '') $category = 'General';
+
+            $order = $ordIdx !== false && isset($row[$ordIdx]) && is_numeric(trim((string)$row[$ordIdx]))
+                ? (int)trim((string)$row[$ordIdx])
+                : $orderCounter;
+
+            $isActive = true;
+            if ($statusIdx !== false && isset($row[$statusIdx])) {
+                $statusVal = strtolower(trim((string)$row[$statusIdx]));
+                if ($statusVal === 'inactive' || $statusVal === 'false' || $statusVal === '0') {
+                    $isActive = false;
+                }
+            }
+
+            $property->faqs()->create([
+                'category' => mb_substr($category, 0, 100),
+                'question' => mb_substr($question, 0, 500),
+                'answer' => $answer,
+                'order' => $order,
+                'is_active' => $isActive,
+            ]);
+
+            $imported++;
+            $orderCounter++;
+        }
+
+        Cache::forget("prop_faqs_{$property->id}");
+        Cache::forget("prop_faqs_all_{$property->id}");
+
+        return response()->json([
+            'success' => true,
+            'message' => "Successfully imported {$imported} FAQs into {$property->site_name}!",
+            'imported_count' => $imported,
+        ]);
+    }
+
+    /**
      * Clear property cache when updated.
      */
     /**

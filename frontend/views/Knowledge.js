@@ -163,6 +163,28 @@ function Faqs({ ctx }) {
       <div className="filter-bar">
         <Select value={siteId} onChange={setSiteId} options={sites.map((p) => ({ value: p.id, label: p.site_name }))} />
         <span className="grow" />
+        {site?.can_manage && (
+          <label className="btn" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <Upload size={15} /> Import CSV
+            <input
+              type="file"
+              accept=".csv,.txt"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                run(async () => {
+                  const form = new FormData();
+                  form.append('file', file);
+                  form.append('replace_existing', '1');
+                  await api(`/properties/${siteId}/faqs/import-csv`, { method: 'POST', form });
+                  faqs.reload(true);
+                }, 'FAQs imported successfully from CSV!');
+                e.target.value = '';
+              }}
+            />
+          </label>
+        )}
         {site?.can_manage && <Button variant="primary" onClick={() => setEdit({ question: '', answer: '', category: 'General', is_active: true })}><CircleHelp size={15} />Add FAQ</Button>}
       </div>
       <p className="muted small">When a customer’s question clearly matches an FAQ, the answer is sent instantly at no AI cost.</p>

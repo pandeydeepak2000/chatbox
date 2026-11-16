@@ -124,6 +124,7 @@ Route::prefix('v1')->group(function () {
         Route::delete('canned-responses/{id}', [AgentChatController::class, 'destroyCannedResponse'])->middleware('role:admin,super_admin');
         Route::get('properties/{id}/faqs', [PropertyController::class, 'listFaqs']);
         Route::post('properties/{id}/faqs', [PropertyController::class, 'storeFaq']); // website admins allowed (checked in controller)
+        Route::post('properties/{id}/faqs/import-csv', [PropertyController::class, 'importFaqsCsv']); // website admins allowed
         Route::put('faqs/{id}', [PropertyController::class, 'updateFaq']); // website admins allowed (checked in controller)
         Route::delete('faqs/{id}', [PropertyController::class, 'destroyFaq']); // website admins allowed (checked in controller)
 

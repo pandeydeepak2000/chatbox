@@ -1644,6 +1644,7 @@
         </div>
         <div style="display:flex; gap:10px;">
           <button class="btn-action" style="padding:10px 18px; font-size:13px;" onclick="loadBladeFaqs()">↻ Refresh FAQs</button>
+          <button class="btn-action" style="padding:10px 18px; font-size:13px; background:#eff6ff; color:#1d4ed8; border:1px solid #93c5fd; font-weight:600;" onclick="openImportFaqsModal()">📥 Import CSV / Excel</button>
           <button class="btn-primary" style="padding:10px 18px; font-size:13px; width:auto;" onclick="openAddFaqModal()">+ Add Company FAQ</button>
         </div>
       </div>
@@ -1841,6 +1842,38 @@
           <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:16px;">
             <button type="button" class="btn-action" onclick="closeAddFaqModal()" style="padding:10px 18px;">Cancel</button>
             <button type="submit" class="btn-primary" style="width:auto; padding:10px 22px;" id="faq-modal-submit-btn">Save FAQ</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal: Import FAQs from CSV / Excel -->
+    <div id="modal-import-faqs" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.6); backdrop-filter:blur(8px); z-index:99999; align-items:center; justify-content:center;">
+      <div class="auth-card" style="width:540px; max-width:92vw;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
+          <h3 style="font-size:18px; font-weight:700; color:#0f172a;">📥 Import FAQs from CSV / Excel</h3>
+          <button onclick="closeImportFaqsModal()" style="background:none; border:none; font-size:20px; cursor:pointer; color:#64748b;">✕</button>
+        </div>
+        <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">
+          Upload a CSV or Excel export containing your company FAQs (Columns: <code>Category</code>, <code>Question</code>, <code>Answer</code>, <code>Order</code>, <code>Status</code>).
+        </p>
+
+        <form id="form-import-faqs" onsubmit="event.preventDefault(); submitImportFaqs();">
+          <div class="form-group" style="margin-bottom:16px;">
+            <label style="display:block; font-size:13px; font-weight:600; margin-bottom:6px;">Select CSV File (.csv)</label>
+            <input type="file" id="import-faq-file" accept=".csv,.txt" class="form-input" style="padding:8px;" required />
+          </div>
+
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:20px;">
+            <input type="checkbox" id="import-faq-replace" checked style="width:16px; height:16px; cursor:pointer;" />
+            <label for="import-faq-replace" style="font-size:13px; color:#0f172a; cursor:pointer; font-weight:500;">
+              Replace all existing FAQs for this property with imported ones
+            </label>
+          </div>
+
+          <div style="display:flex; justify-content:flex-end; gap:10px;">
+            <button type="button" class="btn-action" onclick="closeImportFaqsModal()">Cancel</button>
+            <button type="submit" class="btn-primary" id="btn-submit-import-faq" style="width:auto; padding:10px 22px;">Upload & Import FAQs</button>
           </div>
         </form>
       </div>
@@ -4415,6 +4448,63 @@
       }
     }
     window.deleteBladeFaq = deleteBladeFaq;
+
+    function openImportFaqsModal() {
+      const modal = document.getElementById('modal-import-faqs');
+      if (!modal) return;
+      document.getElementById('import-faq-file').value = '';
+      modal.style.display = 'flex';
+    }
+    window.openImportFaqsModal = openImportFaqsModal;
+
+    function closeImportFaqsModal() {
+      const modal = document.getElementById('modal-import-faqs');
+      if (modal) modal.style.display = 'none';
+    }
+    window.closeImportFaqsModal = closeImportFaqsModal;
+
+    async function submitImportFaqs() {
+      const propId = CURRENT_PROPERTY?.id;
+      if (!propId) {
+        alert('Please select or inspect a property before importing FAQs.');
+        return;
+      }
+      const fileInput = document.getElementById('import-faq-file');
+      if (!fileInput?.files?.length) {
+        alert('Please select a CSV file to upload.');
+        return;
+      }
+      const replace = document.getElementById('import-faq-replace')?.checked ? '1' : '0';
+      const btn = document.getElementById('btn-submit-import-faq');
+      if (btn) { btn.disabled = true; btn.textContent = 'Uploading & Importing...'; }
+
+      const formData = new FormData();
+      formData.append('file', fileInput.files[0]);
+      formData.append('replace_existing', replace);
+
+      try {
+        const res = await fetch(`${API_BASE}/properties/${propId}/faqs/import-csv`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${AUTH_TOKEN}`
+          },
+          body: formData
+        });
+        const json = await res.json();
+        if (res.ok && json.success) {
+          closeImportFaqsModal();
+          alert(json.message || 'FAQs imported successfully!');
+          loadBladeFaqs();
+        } else {
+          alert(json.message || 'Failed to import FAQs.');
+        }
+      } catch (err) {
+        alert('Network error while importing FAQs: ' + err.message);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Upload & Import FAQs'; }
+      }
+    }
+    window.submitImportFaqs = submitImportFaqs;
 
     function openEditUserModal(userId) {
       const u = PLATFORM_USERS.find(x => x.id === userId);

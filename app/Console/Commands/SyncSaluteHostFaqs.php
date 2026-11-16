@@ -22,7 +22,7 @@ class SyncSaluteHostFaqs extends Command
      *
      * @var string
      */
-    protected $description = 'Sync all 20 SaluteHost hosting and domain FAQs to SaluteHost property in ChatBox';
+    protected $description = 'Sync all 32 SaluteHost hosting, VPS, n8n, domain, and billing FAQs to SaluteHost property in ChatBox';
 
     /**
      * Execute the console command.
@@ -73,7 +73,7 @@ class SyncSaluteHostFaqs extends Command
         $faqs = $this->getSaluteHostFaqs();
 
         foreach ($properties as $property) {
-            $this->info("Syncing 20 FAQs for Property: {$property->site_name} (Key: {$property->public_key})...");
+            $this->info("Syncing " . count($faqs) . " FAQs for Property: {$property->site_name} (Key: {$property->public_key})...");
 
             // Remove old placeholder FAQs for this SaluteHost property
             Faq::where('property_id', $property->id)->delete();
@@ -84,7 +84,7 @@ class SyncSaluteHostFaqs extends Command
                     'category' => $item['category'],
                     'question' => $item['question'],
                     'answer' => $item['answer'],
-                    'order' => $item['order'],
+                    'order' => $item['order'] ?? 0,
                     'is_active' => true,
                 ]);
             }
@@ -98,130 +98,213 @@ class SyncSaluteHostFaqs extends Command
     }
 
     /**
-     * SaluteHost FAQs definition
+     * SaluteHost 32 Master FAQs definition
      */
     public function getSaluteHostFaqs(): array
     {
         return [
+            // SECTION 1: DOMAINS & DNS (Order 1 - 5)
             [
-                'category'  => 'Billing & Account',
-                'question'  => 'How do I reset my SaluteHost Client Area or cPanel password?',
-                'answer'    => "You can easily reset your passwords through the following methods:\n\n• **Client Area Password:** On the login page (`salutehost.com/login`), click **'Forgot Password'**, enter your registered email address, and follow the reset link sent to your inbox.\n• **cPanel Password:** Log in to your SaluteHost Client Area > **Services** > Select your hosting plan > Click **'Change Password'** from the left sidebar to set a new cPanel password instantly.",
-                'order'     => 1,
+                'category' => 'Domains & DNS',
+                'question' => 'How can I buy or register a new domain name on SaluteHost? / SaluteHost पर नया डोमेन कैसे खरीदें?',
+                'answer'   => "SaluteHost par domain register karna instant aur automatic hai:\n\n1. **Search Domain:** SaluteHost ke Domain Search page par jayein (`salutehost.com/domains`) aur apna manpasand domain type karein (e.g. `yourbrand.com` ya `yourbrand.in`).\n2. **Cart:** Availability check karke **Add to Cart** par click karein.\n3. **Billing Cycle:** 1 Year se 10 Years tak ka registration period choose karein.\n4. **Payment:** UPI, Dynamic QR Code, Card ya SaluteHost Wallet balance se checkout karein.\n5. **Instant Activation:** Payment hote hi domain registry par lock ho jata hai aur Dashboard mein **My Domains** section mein manage karne ke liye live ho jata hai.\n\n💡 **Pricing & Feature:** .IN Domain ₹399/year aur .COM Domain ₹899/year with **Free Lifetime WHOIS Privacy Protection**!",
+                'order'    => 1,
             ],
             [
-                'category'  => 'Billing & Invoices',
-                'question'  => 'Where can I view or download my invoices and receipts?',
-                'answer'    => "You can view and download all your past and pending invoices directly from the Client Area:\n\n1. Log in to your SaluteHost Client Area (`salutehost.com/login`).\n2. Navigate to **Billing > My Invoices**.\n3. Click on the invoice number to view details or click **'Download PDF'** for official accounting records.\n4. Paid invoices show a green **PAID** status badge with the transaction reference.",
-                'order'     => 2,
+                'category' => 'Domains & DNS',
+                'question' => 'How do I transfer my domain from another registrar to SaluteHost? / Kisi dusre registrar se domain SaluteHost par kaise transfer karein?',
+                'answer'   => "Apna domain bina kisi website downtime ke SaluteHost par transfer karne ke steps:\n\n1. **Unlock Domain:** Apne current registrar (GoDaddy, Namecheap, Hostinger, etc.) panel mein jakar Domain Transfer Lock ko **OFF / Unlocked** karein.\n2. **EPP / Auth Code:** Purane registrar se EPP/Authorization code generate karke copy karein.\n3. **Transfer Order:** SaluteHost ke **Transfer Domain** page par jayein, domain naam aur EPP code enter karein.\n4. **Checkout:** 1-Year renewal fee pay karein (transfer ke sath aapko 1 additional year validity free add hoti hai).\n5. **Registry Approval:** Registry approval hote hi 5 se 7 dinon ke andar domain automatically SaluteHost par transfer ho jata hai.",
+                'order'    => 2,
             ],
             [
-                'category'  => 'Billing & Payments',
-                'question'  => 'What payment methods does SaluteHost accept?',
-                'answer'    => "SaluteHost supports all major secure Indian and International payment methods:\n\n1. **UPI:** Google Pay, PhonePe, Paytm, BHIM, and Amazon Pay (Zero additional transaction fees).\n2. **Dynamic QR Code:** Instant scan-and-pay on the checkout screen with automatic order activation in seconds.\n3. **SaluteHost Wallet:** Pre-fund your account balance for 1-click renewals and instant checkout.\n4. **Cards & Net Banking:** Visa, MasterCard, RuPay Debit/Credit cards, and Net Banking across 50+ major banks.",
-                'order'     => 3,
+                'category' => 'Domains & DNS',
+                'question' => 'What are SaluteHost official nameservers and how do I point my domain? / SaluteHost ke nameservers kya hain aur domain kaise point karein?',
+                'answer'   => "SaluteHost ke ultra-fast Anycast nameservers hain:\n\n• **Primary Nameserver (NS1):** `ns1.salutehost.com`\n• **Secondary Nameserver (NS2):** `ns2.salutehost.com`\n\n**Nameservers update karne ke steps:**\n1. Jahan se domain khareeda hai us panel mein login karein (ya SaluteHost Client Portal > **My Domains** > **Manage Nameservers**).\n2. **Custom Nameservers** select karein aur `ns1.salutehost.com` aur `ns2.salutehost.com` save karein.\n\n⏳ Global DNS propagation mein 15 minute se 4 ghante tak ka samay lag sakta hai.",
+                'order'    => 3,
             ],
             [
-                'category'  => 'Domains',
-                'question'  => 'What are SaluteHost official nameservers to point my domain?',
-                'answer'    => "To point your domain name to SaluteHost web hosting, use the following official nameservers:\n\n• **Primary Nameserver:** `ns1.salutehost.com`\n• **Secondary Nameserver:** `ns2.salutehost.com`\n\n**How to update:**\n1. Log in to your domain registrar (GoDaddy, Namecheap, Hostinger, etc.).\n2. Open DNS / Nameserver settings for your domain.\n3. Select **Custom Nameservers** and enter `ns1.salutehost.com` and `ns2.salutehost.com`.\n4. Save your changes. Global DNS propagation usually takes between 15 minutes to a few hours.",
-                'order'     => 4,
+                'category' => 'Domains & DNS',
+                'question' => 'How do I manage DNS records like A record, CNAME, TXT, or MX records? / DNS Records (A, CNAME, MX, TXT) kaise add karein?',
+                'answer'   => "DNS records manage karne ke 2 aasan methods hain:\n\n• **Method 1 - cPanel Zone Editor (Hosting ke sath):**\n1. cPanel mein login karein aur **Zone Editor** tool open karein.\n2. Apne domain ke samne **Manage** par click karein.\n3. **+ Add Record** par click karke A record (Server IP ke liye), CNAME (subdomain ke liye), ya TXT/MX record (Google Workspace / Zoho Mail verification ke liye) save karein.\n\n• **Method 2 - Client Portal DNS (Only Domain ke liye):**\nClient Portal > **My Domains** > **DNS Management** mein jakar direct records manage kar sakte hain.",
+                'order'    => 4,
             ],
             [
-                'category'  => 'Domains',
-                'question'  => 'How can I buy or register a new domain name on SaluteHost?',
-                'answer'    => "Registering a domain on SaluteHost takes less than 2 minutes:\n\n1. Visit the Domain Search page (`salutehost.com/domains`) and search for your desired domain name (e.g., `yourbrand.com` or `yourbrand.in`).\n2. If the domain is available, click **Add to Cart**.\n3. Proceed to checkout, select your billing cycle, and complete payment via UPI, QR code, or Card.\n4. The domain will be registered instantly and appear in your Client Portal under **My Domains**.",
-                'order'     => 5,
+                'category' => 'Domains & DNS',
+                'question' => 'How does domain renewal work and what is the expiry grace period? / Domain renewal kaise karein aur expiry ke baad kya hota hai?',
+                'answer'   => "SaluteHost par domain renewal process:\n\n1. **Renewal Steps:** Client Portal > **My Domains** > Apne domain ke samne **Renew** button par click karein > 1 se 10 saal ka tenure chunein > UPI ya Wallet se pay karein.\n2. **Auto-Debit:** Agar aapke SaluteHost Wallet mein balance hai, toh due date par automatic renewal trigger ho sakta hai.\n3. **Grace Period:** Expiry date ke baad domain 30 dinon ke liye Grace Period mein rehta hai jahan standard fee par renew ho jata hai. Uske baad Redemption Period shuru hota hai jisme heavy penalty lagti hai, isliye due date se pehle renew karein.",
+                'order'    => 5,
+            ],
+
+            // SECTION 2: WEB & CLOUD HOSTING (Order 6 - 13)
+            [
+                'category' => 'Web & Cloud Hosting',
+                'question' => 'What web hosting plans does SaluteHost offer and what are the features? / SaluteHost ke hosting plans aur features kya hain?',
+                'answer'   => "SaluteHost high-performance Cloud NVMe SSD Web Hosting provide karta hai:\n\n• **Cloud Starter Plan:** 1 Website, 10GB NVMe SSD, Unmetered Bandwidth, Free Lifetime SSL, 5 Business Emails, cPanel control panel.\n• **Cloud Standard Plan:** 3 Websites, 30GB Pure NVMe SSD, Free SSL, Unlimited Business Emails, Daily Automated Backups.\n• **Business Turbo Plan:** Unlimited Websites, 100GB NVMe SSD, 4GB RAM & 2 vCPU isolation, CloudLinux OS, LiteSpeed caching.\n\n⭐ Sabhi plans 99.9% Uptime Guarantee, 1-Click Softaculous Apps, Tier-4 Data Center aur 24/7 Live Support ke sath aate hain!",
+                'order'    => 6,
             ],
             [
-                'category'  => 'Domains',
-                'question'  => 'How do I transfer my domain to SaluteHost from another registrar?',
-                'answer'    => "To transfer an existing domain to SaluteHost without any website downtime:\n\n1. **Unlock Domain:** In your current registrar's panel, set the Domain Transfer Lock to **Disabled / Off**.\n2. **Obtain EPP/Auth Code:** Request the authorization / EPP key from your current registrar.\n3. **Initiate Transfer:** Go to SaluteHost Client Area > **Transfer Domain**, enter your domain name and paste the EPP code.\n4. **Complete Checkout:** Pay the 1-year renewal fee (transfers include an additional 1-year extension). The transfer will complete automatically within 5 to 7 days.",
-                'order'     => 6,
+                'category' => 'Web & Cloud Hosting',
+                'question' => 'How do I access my cPanel dashboard or reset my cPanel password? / cPanel login ya password reset kaise karein?',
+                'answer'   => "cPanel access karne ke 2 simple options hain:\n\n• **1-Click SSO Login (No Password Needed):** SaluteHost Client Portal (`salutehost.com/login`) par jayein > **Web Hosting** > Apne active package ke samne orange **cPanel Login** button par click karein. Yeh direct single-sign-on se bina credentials dale cPanel open kar deta hai.\n• **Direct URL:** Browser mein `yourdomain.com:2083` ya `cpanel.yourdomain.com` open karke apna cPanel username aur password enter karein.\n\n🔑 **Password Reset:** Client Portal mein hosting account ke andar **Login Details / Change Password** par click karke naya password set karein.",
+                'order'    => 7,
             ],
             [
-                'category'  => 'Domains',
-                'question'  => 'How do I manage DNS records like A record, CNAME, TXT, or MX records?',
-                'answer'    => "You can manage DNS records easily in two ways:\n\n• **Via cPanel Zone Editor (Recommended):** Log in to cPanel > **Domains** > **Zone Editor** > Click **Manage** next to your domain. Click **+ Add Record** to add your A, CNAME, TXT, or MX record and save.\n• **Via Client Area DNS:** If you only have a domain without hosting, navigate to **Client Area > My Domains > DNS Management** to configure your records.",
-                'order'     => 7,
+                'category' => 'Web & Cloud Hosting',
+                'question' => 'How to install WordPress in cPanel using Softaculous in 1-Click? / cPanel mein 1 minute mein WordPress kaise install karein?',
+                'answer'   => "Softaculous se WordPress install karne ke simple steps:\n\n1. cPanel dashboard mein login karein.\n2. **Softaculous Apps Installer** section mein jayein aur **WordPress** par click karein.\n3. **Install Now** button dabayein.\n4. **Protocol:** `https://` choose karein aur apna domain select karein. (Agar root site par chahiye toh 'In Directory' field ko khali chhodein).\n5. **Admin Account:** Apna Admin Username, secure Password, aur apna working Email address enter karein.\n6. Neeche **Install** button par click karein. 30 seconds ke andar website live ho jayegi aur aap `yourdomain.com/wp-admin` par login kar sakenge!",
+                'order'    => 8,
             ],
             [
-                'category'  => 'Web Hosting',
-                'question'  => 'What web hosting plans does SaluteHost offer?',
-                'answer'    => "SaluteHost provides ultra-fast NVMe SSD powered web hosting backed by a 99.9% Uptime Guarantee:\n\n• **Starter Hosting:** Single website, 10 GB Pure NVMe SSD storage, Free SSL, unmetered bandwidth, and 5 business emails. Perfect for beginners and portfolio sites.\n• **Business Hosting:** Unlimited websites, 50 GB NVMe SSD, free domain on annual billing, LiteSpeed web server, and 2x CPU/RAM resources.\n• **Cloud VPS:** Dedicated KVM virtualized resources, full root access, Tier-4 data center location, 1 Gbps uplink, and enterprise DDoS protection.",
-                'order'     => 8,
+                'category' => 'Web & Cloud Hosting',
+                'question' => 'How do I activate Free SSL Certificate and force HTTPS? / Free SSL Certificate kaise activate karein aur HTTPS enable karein?',
+                'answer'   => "SaluteHost ke sabhi hosting plans mein **Free Lifetime AutoSSL (Let's Encrypt)** shamil hota hai:\n\n1. Make sure aapka domain SaluteHost ke nameservers (`ns1.salutehost.com` & `ns2.salutehost.com`) par point kar raha ho.\n2. Nameserver point hote hi 15 se 30 minute mein AutoSSL automatically certificate issue kar deta hai.\n3. **Manual Run:** cPanel mein jakar **SSL/TLS Status** search karein > apna domain select karein > blue **Run AutoSSL** button click karein.\n4. **Force HTTPS Redirect:** cPanel ke **Domains** section mein jakar 'Force HTTPS Redirect' toggle ko **ON** kar dein taaki sari visitors secure `https://` par redirect ho jayein.",
+                'order'    => 9,
             ],
             [
-                'category'  => 'Web Hosting',
-                'question'  => 'How do I install WordPress using Softaculous in cPanel?',
-                'answer'    => "You can install WordPress in 60 seconds with our 1-click installer:\n\n1. Log in to your cPanel dashboard.\n2. Scroll to the **Softaculous Apps Installer** section and click the **WordPress** icon.\n3. Click **Install Now**.\n4. Select your domain (`https://yourdomain.com`). Leave the **In Directory** field blank if installing on your root site.\n5. Set your Admin Username, secure Password, and Admin Email.\n6. Click **Install** at the bottom. Your WordPress website will be live in 30 seconds!",
-                'order'     => 9,
+                'category' => 'Web & Cloud Hosting',
+                'question' => 'How do I create a professional email (info@mybrand.com) and login to Webmail? / Professional business email kaise banayein aur Webmail access karein?',
+                'answer'   => "Apne custom domain par business email create karne ke steps:\n\n1. cPanel mein login karein aur **Email Accounts** tool open karein.\n2. Blue **+ Create** button par click karein.\n3. Domain choose karein, username dalein (jaise `support`, `info`, `sales`, `contact`) aur strong password enter karein.\n4. Storage limit set karein aur **Create** par click karein.\n\n📬 **Webmail Access:** Browser mein `yourdomain.com/webmail` ya `webmail.yourdomain.com` open karein, pura email ID aur password enter karein aur Roundcube interface se email send/receive karein.",
+                'order'    => 10,
             ],
             [
-                'category'  => 'Web Hosting',
-                'question'  => 'How do I activate Free SSL Certificate and force HTTPS?',
-                'answer'    => "SaluteHost includes lifetime automated Let's Encrypt / AutoSSL certificates with all hosting accounts:\n\n1. **Automatic Activation:** Once your domain points to our nameservers, AutoSSL runs automatically within 15–30 minutes to install your certificate.\n2. **Manual Force Run:** Log in to cPanel > **SSL/TLS Status** > Select your domain > Click **Run AutoSSL**.\n3. **Force HTTPS:** In cPanel > **Domains**, switch the **Force HTTPS Redirect** toggle to **ON** so all visitors are redirected to secure `https://`.",
-                'order'     => 10,
+                'category' => 'Web & Cloud Hosting',
+                'question' => 'How can I change the PHP version (PHP 7.4 to 8.3) and increase memory limit? / PHP version kaise change karein aur memory limit badhayein?',
+                'answer'   => "SaluteHost par modern PHP versions (PHP 7.4, 8.0, 8.1, 8.2, 8.3) fully supported hain:\n\n1. cPanel open karein aur search bar mein **Select PHP Version** (ya MultiPHP Manager) type karein.\n2. Current PHP version dropdown se naya version select karein (e.g. PHP 8.2 ya 8.3) aur **Apply** karein.\n3. **Extensions:** 'Extensions' tab par click karke zaroori modules jaise `curl`, `gd`, `zip`, `fileinfo`, `imagick`, `mysqli`, `intl`, `pdo_mysql` enable karein.\n4. **Memory & Upload Limit:** 'Options' tab mein jayein aur `memory_limit` ko `512M` aur `upload_max_filesize` ko `128M` ya `256M` par set karein.",
+                'order'    => 11,
             ],
             [
-                'category'  => 'Web Hosting',
-                'question'  => 'How do I create a professional email address and access Webmail?',
-                'answer'    => "• **Create Email Account:**\n1. Log in to cPanel and open **Email Accounts**.\n2. Click **+ Create**, choose your domain, set your username (e.g. `support`, `info`, `sales`), and choose a strong password.\n3. Click **Create**.\n\n• **Access Webmail:**\nVisit `yourdomain.com/webmail` in your browser, enter your full email address and password, and use Roundcube to send and receive emails.",
-                'order'     => 11,
+                'category' => 'Web & Cloud Hosting',
+                'question' => 'Can I host Node.js and Python applications on SaluteHost cPanel? / Kya Node.js aur Python apps host kar sakte hain?',
+                'answer'   => "Haan! SaluteHost cPanel par Node.js aur Python dono built-in runners ke sath aate hain:\n\n• **Node.js Setup:** cPanel mein **Setup Node.js App** par jayein > **Create Application** par click karein > Node.js version choose karein (v18, v20, v22) > Application root aur startup file (`app.js` ya `server.js`) define karein > Run NPM Install karein.\n• **Python Setup:** cPanel mein **Setup Python App** par jayein > Python version (3.10, 3.11) select karein > WSGI file aur application root specify karein > Run Pip Install karein.\n\nEnvironment variables aur application restart cPanel UI se instantly manage ho jate hain.",
+                'order'    => 12,
             ],
             [
-                'category'  => 'Web Hosting',
-                'question'  => 'How do I log in to my cPanel dashboard or find my credentials?',
-                'answer'    => "You can access cPanel in two easy ways:\n\n• **Single Sign-On (No Password Needed):** Log in to your SaluteHost Client Area (`salutehost.com/login`) > Go to **Services** > Click on your active hosting package > Click **Login to cPanel** on the left menu.\n• **Direct URL:** Go to `yourdomain.com:2083` or `cpanel.yourdomain.com` and log in using the credentials provided in your hosting welcome email.",
-                'order'     => 12,
+                'category' => 'Web & Cloud Hosting',
+                'question' => 'How do automatic backups work and how can I restore or download my website? / Automated backups aur 1-click restore kaise kaam karta hai?',
+                'answer'   => "SaluteHost par cloud storage par daily automated snapshot backups run hote hain:\n\n1. **JetBackup 5 (Recommended):** cPanel mein **JetBackup 5** tool open karein > 'File Backups', 'Database Backups', ya 'Cron Jobs' select karein > Desired date ka snapshot choose karein aur **Restore** par click karein. Kuch hi minutes mein data restore ho jata hai without any data loss.\n2. **Manual Download:** cPanel ke **Backup Wizard** mein jakar Full Backup ya Home Directory backup `.tar.gz` format mein apne personal computer par download kar sakte hain.",
+                'order'    => 13,
+            ],
+
+            // SECTION 3: HERMES AI AGENT VPS (Order 14 - 18)
+            [
+                'category' => 'Hermes AI VPS',
+                'question' => 'What is SaluteHost Hermes AI Agent VPS and what are its capabilities? / Hermes AI Agent VPS kya hai aur isme kya features hain?',
+                'answer'   => "SaluteHost **Hermes AI Agent VPS** ek dedicated, pre-configured cloud environment hai jo autonomous AI agents ko 24/7 run karne ke liye design kiya gaya hai:\n\n• **Pre-installed Stack:** Hermes Agent workspace, Docker runtime, Node.js, Python 3, Git, aur system dependencies pehle se installed aur configured milti hain.\n• **Dedicated Compute:** Pure KVM virtualization, dedicated high-frequency vCPU cores, aur ultra-fast NVMe storage.\n• **Autonomous Workflows:** Yeh agent continuous web browsing, API integrations, data scraping, code execution, aur automated tasks background mein bina band hue execute karta hai.\n• **Subdomain Included:** Har instance ko ek custom subdomain (e.g. `hermes-xxxxx.salutehost.com`) milta hai with SSL enabled.",
+                'order'    => 14,
             ],
             [
-                'category'  => 'Web Hosting',
-                'question'  => 'How can I change the PHP version or enable PHP extensions?',
-                'answer'    => "SaluteHost supports multiple PHP versions from PHP 7.4 up to PHP 8.3:\n\n1. Log in to cPanel and open **Select PHP Version** (or **MultiPHP Manager**).\n2. Choose your preferred PHP version (e.g., PHP 8.2 or 8.3) from the dropdown and click **Apply**.\n3. Switch to the **Extensions** tab to enable modules such as `curl`, `fileinfo`, `gd`, `imagick`, `pdo_mysql`, `zip`, etc.\n4. Adjust memory limits (e.g. 512M) and `upload_max_filesize` in the **Options** tab.",
-                'order'     => 13,
+                'category' => 'Hermes AI VPS',
+                'question' => 'How do I access Hermes Agent Web UI and SSH Terminal? / Hermes Agent Web Dashboard aur SSH Terminal kaise open karein?',
+                'answer'   => "Hermes VPS deploy hote hi aapko credentials aur access URLs instant mil jaate hain:\n\n1. **Web UI (Port 3000):** Apne browser mein assigned subdomain open karein (e.g. `https://hermes-xxxxx.salutehost.com:3000` ya standard web proxy port). SaluteHost Client Portal > **AI Agent & n8n VPS** mein jakar direct 1-click **Open Web UI** par click kar sakte hain.\n2. **SSH Terminal Access (Port 22):** PuTTY ya Terminal se connect karein:\n`ssh root@YOUR_SERVER_IP -p 22`\nPassword aapke service activation email aur Client Portal ke 'Login Details' tab mein available hota hai.\n3. **Root Privileges:** Aapke paas full root access hota hai jisse aap koi bhi packages, python libraries ya models install kar sakte hain.",
+                'order'    => 15,
             ],
             [
-                'category'  => 'Web Hosting',
-                'question'  => 'Can I run Node.js and Python applications on SaluteHost?',
-                'answer'    => "Yes! SaluteHost Cloud and Business hosting plans feature built-in application runners in cPanel:\n\n• **Node.js:** Open the **Setup Node.js App** tool in cPanel, select your Node version (v18, v20, v22), specify the application root directory, and run `npm install`.\n• **Python (Django / Flask):** Open **Setup Python App** in cPanel to create Python 3.10 / 3.11 virtual environments.\n• **Custom Stacks:** For full custom control with Docker, PM2, and Redis, our Cloud VPS plans provide full root access.",
-                'order'     => 14,
+                'category' => 'Hermes AI VPS',
+                'question' => 'How do I connect AI LLM APIs (OpenAI, Claude, Gemini, OpenRouter) in Hermes VPS? / Hermes mein AI API keys kaise connect karein?',
+                'answer'   => "Hermes Agent sabhi leading AI models aur LLM providers ko support karta hai:\n\n1. Hermes Web Dashboard par jayein aur **Settings > LLM Configuration** open karein (ya SSH terminal mein `.env` file edit karein).\n2. **Supported Providers:**\n• **OpenAI:** GPT-4o, GPT-4 Turbo (Enter `OPENAI_API_KEY`)\n• **Anthropic:** Claude 3.5 Sonnet / Opus (Enter `ANTHROPIC_API_KEY`)\n• **Google Gemini:** Gemini 1.5 Pro / Flash (Enter `GEMINI_API_KEY`)\n• **OpenRouter / DeepSeek:** Custom baseURL aur API key enter karein.\n3. Save configuration karein. Agent turant naye model se connect hokar prompts aur complex agentic loops run karne ke liye ready ho jata hai.",
+                'order'    => 16,
             ],
             [
-                'category'  => 'Web Hosting',
-                'question'  => 'How do automatic backups work and how do I restore my website?',
-                'answer'    => "SaluteHost includes automated daily and weekly backups for all accounts:\n\n1. Log in to cPanel and open **JetBackup 5** (or **Backup**).\n2. **Full Download:** Click **Create Full Backup** to download a compressed archive to your local computer.\n3. **1-Click Restore:** Inside JetBackup, select Files, MySQL Databases, Cron Jobs, or Email Accounts and click **Restore** to roll back to any available snapshot with zero data loss.",
-                'order'     => 15,
+                'category' => 'Hermes AI VPS',
+                'question' => 'Does Hermes VPS keep persistent memory and run cron jobs 24/7? / Kya Hermes VPS 24/7 background mein run hota hai aur memory save rehti hai?',
+                'answer'   => "Haan! Hermes VPS ki sabse badi khasiyat yahi hai:\n\n• **Persistent Long-Term Memory:** SQLite / PostgreSQL memory vector database instance mein saved rehti hai. Server restart hone ke baad bhi agent purani conversations, tasks aur learned instructions nahi bhulta.\n• **24/7 Uninterrupted Background Run:** Agent background daemons aur systemd services par chalta hai. Aap apna browser ya computer band kar dein, tab bhi agent scheduled tasks, monitoring aur bot operations continuously run karta rehta hai.\n• **Cron Scheduling:** Linux cron jobs aur scheduled agent triggers built-in support hote hain.",
+                'order'    => 17,
             ],
             [
-                'category'  => 'Technical Support',
-                'question'  => 'How do I fix a 403 Forbidden error on my website?',
-                'answer'    => "Common causes and solutions for 403 Forbidden errors:\n\n1. **Missing Index File:** Ensure your website's main file (`index.html` or `index.php`) is located inside the `public_html` directory.\n2. **File Permissions:** Folder permissions must be set to `755` and file permissions to `644`. Check this in cPanel File Manager by right-clicking and selecting **Change Permissions**.\n3. **Corrupt .htaccess:** In cPanel File Manager, temporarily rename `public_html/.htaccess` to `.htaccess.bak` to check if an invalid deny rule is causing the blockage.",
-                'order'     => 16,
+                'category' => 'Hermes AI VPS',
+                'question' => 'How do I point my own custom domain to Hermes VPS? / Apna custom domain Hermes VPS se kaise bind karein?',
+                'answer'   => "Apna custom domain (e.g. `agent.yourdomain.com`) Hermes VPS par point karne ke steps:\n\n1. Apne domain provider (cPanel Zone Editor ya Cloudflare) mein jayein.\n2. Ek naya **A Record** add karein:\n• **Name / Host:** `agent` (ya `@` root ke liye)\n• **Type:** `A`\n• **Value / IP:** Apne Hermes VPS ka Public IP enter karein.\n3. SaluteHost Client Portal > **AI Agent & n8n VPS** > **Manage Instance** mein jakar 'Custom Domain' field mein apna domain enter karke Save karein.\n4. Nginx reverse proxy aur Let's Encrypt SSL certificate automatic configure ho jayega.",
+                'order'    => 18,
+            ],
+
+            // SECTION 4: N8N AUTOMATION ENGINE VPS (Order 19 - 22)
+            [
+                'category' => 'n8n Automation VPS',
+                'question' => 'What is SaluteHost n8n Automation VPS and how is it deployed? / n8n Automation VPS kya hai aur setup kaise hota hai?',
+                'answer'   => "SaluteHost **n8n Automation VPS** ek pre-installed, enterprise-grade workflow automation server hai:\n\n• **Instant 60-Second Setup:** Order karte hi Dockerized n8n engine, PostgreSQL database, aur secure HTTPS reverse proxy automatically deploy ho jate hain.\n• **Zero Execution Limits:** Cloud n8n ki tarah per-execution billing ka koi jhanjhat nahi. Aap jitne chahein workflows, cron jobs aur webhooks run karein bina kisi extra charge ke!\n• **Subdomain Included:** Har plan ke sath instant free subdomain milta hai (e.g. `n8n-cyqyq.salutehost.com`) jo direct browser mein ready-to-use open hota hai.",
+                'order'    => 19,
             ],
             [
-                'category'  => 'Technical Support',
-                'question'  => 'How do I resolve a 500 Internal Server Error or Database Connection Error?',
-                'answer'    => "• **500 Internal Server Error:**\n1. Open cPanel **File Manager** and inspect `public_html/error_log` for the exact PHP error and line number.\n2. Check your `.htaccess` file for syntax errors.\n3. Increase your PHP memory limit to `512M` in cPanel under **Select PHP Version > Options**.\n\n• **Database Connection Error:**\n1. Verify database credentials in your configuration file (`wp-config.php` for WordPress or `.env` for Laravel).\n2. In cPanel > **MySQL Databases**, ensure the database user is assigned to the database with **ALL PRIVILEGES**.",
-                'order'     => 17,
+                'category' => 'n8n Automation VPS',
+                'question' => 'How do I access n8n Workflow Editor and set up my admin account? / n8n Web Editor login aur first-time setup kaise karein?',
+                'answer'   => "n8n Web Editor open karne ke simple steps:\n\n1. SaluteHost Client Portal > **AI Agent & n8n VPS** section mein jayein.\n2. Apne active n8n service ke samne **Open n8n Editor** button par click karein (ya browser mein apna assigned subdomain `https://n8n-xxxxx.salutehost.com` open karein).\n3. **First-Time Setup:** Pehli baar open karte hi n8n ka owner registration screen aayega. Apna Name, Email, aur strong Password enter karke **Setup** complete karein.\n4. Ab aapka n8n canvas live hai aur aap hazaron pre-built templates aur custom workflows build karna shuru kar sakte hain!",
+                'order'    => 20,
             ],
             [
-                'category'  => 'Web Hosting',
-                'question'  => 'How do I add a subdomain or host multiple websites (addon domain)?',
-                'answer'    => "• **Subdomain (e.g. blog.yourdomain.com):**\n1. In cPanel, navigate to the **Domains** section and click **Create A New Domain**.\n2. Enter your subdomain (e.g., `blog.yourdomain.com`).\n3. The document root will automatically be assigned (e.g., `public_html/blog`). Click **Submit**.\n\n• **Addon Domain (Multiple Websites):**\nIf your hosting plan allows multiple sites, click **Create A New Domain**, enter your new domain name, uncheck 'Share document root', specify a folder name, and click **Submit**.",
-                'order'     => 18,
+                'category' => 'n8n Automation VPS',
+                'question' => 'How do I configure Webhooks, Telegram Bots, and WhatsApp in n8n? / n8n mein Webhooks aur Telegram/WhatsApp bots kaise connect karein?',
+                'answer'   => "n8n par webhooks aur chat bots build karna ultra-smooth hai:\n\n• **Webhooks:** Canvas mein **Webhook Trigger** node add karein. SaluteHost n8n VPS par valid SSL pehle se hota hai, isliye production webhook URL instant secure `https://` endpoint provide karta hai jo Stripe, Razorpay, Shopify, aur cPanel events catch kar sakta hai.\n• **Telegram Bot:** Telegram par `@BotFather` se bot token banayein aur n8n ke 'Telegram' node mein credentials paste karke automated alerts aur commands enable karein.\n• **WhatsApp API:** Meta Cloud API ya unofficial WhatsApp gateways ke HTTP Request nodes add karke automated messaging setup karein.",
+                'order'    => 21,
             ],
             [
-                'category'  => 'Web Hosting',
-                'question'  => 'How do I upload website files using cPanel File Manager or FTP?',
-                'answer'    => "You can upload your website files using either method:\n\n• **Method 1 - cPanel File Manager (Easiest):** Open cPanel > **File Manager** > Go to `public_html` > Click **Upload** at the top > Select your website `.zip` archive > Right-click and choose **Extract**.\n• **Method 2 - FTP (FileZilla):** Connect with Host: your domain or server IP, Username: cPanel username, Password: cPanel password, Port: 21. Drag and drop your files into `public_html`.",
-                'order'     => 19,
+                'category' => 'n8n Automation VPS',
+                'question' => 'Can I upgrade my n8n VPS resources (vCPU & RAM) when workflow volume grows? / n8n VPS ko upgrade kaise karein?',
+                'answer'   => "Haan! Jaise jaise aapki business automations badhti hain, aap seamlessly upgrade kar sakte hain:\n\n1. Client Portal > **AI Agent & n8n VPS** > Apne plan par **Upgrade / Downgrade** par click karein.\n2. Naya tier select karein (e.g. 2-Core se 4-Core / 8GB RAM Turbo).\n3. Difference amount pay karein. Server resources automatic scale ho jayenge aur aapke purane workflows, credentials aur databases bilkul intact rahenge bina kisi data loss ke.",
+                'order'    => 22,
+            ],
+
+            // SECTION 5: BILLING, RENEWALS, WALLET & ACCOUNT (Order 23 - 28)
+            [
+                'category' => 'Billing & Wallet',
+                'question' => 'What payment options can I use to pay invoices? / Payment ke kaun se options available hain?',
+                'answer'   => "SaluteHost par sabhi popular Indian aur International payment methods supported hain:\n\n1. **UPI:** Google Pay, PhonePe, Paytm, BHIM, Amazon Pay (Instant confirmation with 0% extra gateway fees).\n2. **Dynamic QR Code:** Checkout screen par dynamic QR scan karein aur 10 seconds mein automatic service activation payein.\n3. **SaluteHost Account Wallet:** Instant 1-click renewals aur fast checkouts ke liye pre-funded wallet balance.\n4. **Debit/Credit Cards & Net Banking:** Visa, MasterCard, RuPay cards aur 50+ Indian banks ki Net Banking.\n\nSabhi transactions 256-Bit SSL encrypted aur fully automated hain.",
+                'order'    => 23,
             ],
             [
-                'category'  => 'Billing & Support',
-                'question'  => 'What is SaluteHost refund policy and money-back guarantee?',
-                'answer'    => "SaluteHost offers a transparent money-back guarantee:\n\n• **Web & Cloud Hosting:** All shared and cloud hosting plans come with a **7-Day Money-Back Guarantee**. If you are not fully satisfied, you can open a billing ticket within 7 days for a 100% refund.\n• **Domains & Addons:** Domain registrations, renewals, and software licenses are non-refundable as registry fees are immediately collected by central domain registries.\n\nRefunds are processed back to your original payment method or SaluteHost Wallet within 2–5 business days.",
-                'order'     => 20,
+                'category' => 'Billing & Wallet',
+                'question' => 'How does SaluteHost Wallet work and how do I add money to it? / SaluteHost Wallet kya hai aur paise kaise add karein?',
+                'answer'   => "SaluteHost Wallet ek fast pre-funded account balance hai jo checkout aur renewals ko instant banata hai:\n\n1. **Add Money:** Client Portal mein top bar ya left sidebar se **My Wallet** (ya **+ Add Money**) par click karein.\n2. **Amount:** Minimum ₹10 se lekar apni zaroorat ka amount enter karein.\n3. **Payment:** UPI QR scan karein ya UPI ID se pay karein. Paisa instantly wallet balance mein credit ho jata hai.\n4. **Benefits:** Renewal ke waqt baar baar OTP ya bank login nahi karna padta, 1-click mein invoice paid mark ho jati hai!",
+                'order'    => 24,
+            ],
+            [
+                'category' => 'Billing & Wallet',
+                'question' => 'How does Service Renewal work and where can I check my Next Due Date? / Service Renewal kaise hoti hai aur Next Due Date kahan dekhein?',
+                'answer'   => "SaluteHost par renewal cycle transparent aur automated hai:\n\n1. **Next Due Date Check:** Client Portal ke **Web Hosting**, **My Domains**, ya **AI Agent & n8n VPS** section mein jayein. Har active product ke samne **Billing & Next Due** date clearly mention hoti hai.\n2. **Invoice Generation:** Due date se 7 din pehle automated renewal invoice generate hoti hai aur email notification send hota hai.\n3. **Renew Button:** Service ke samne diye gaye blue **Renew** button par click karke aap tenure (1 Month, 1 Year, etc.) select karke payment complete kar sakte hain.",
+                'order'    => 25,
+            ],
+            [
+                'category' => 'Billing & Wallet',
+                'question' => 'Why is my service Suspended and how do I use Pay & Unsuspend to restore it? / Service Suspend kyun hui aur Pay & Unsuspend kaise kaam karta hai?',
+                'answer'   => "Service suspension ke 2 main reasons hote hain:\n\n1. **Overdue / Unpaid Renewal:** Agar invoice due date par pay nahi hoti, toh system service ko temporarily suspend kar deta hai. Aise case mein service ke samne red color ka **⚡ Pay & Unsuspend** button show hota hai. Jaise hi aap invoice pay karte hain, server automatically seconds mein **ACTIVE** ho jata hai with zero data loss.\n2. **Abuse / Policy Violation:** Agar website par malware, phishing, ya resource abuse detect hota hai, toh admin suspension lagta hai. Is case mein 'Pay & Unsuspend' button nahi dikhega; aapko **Support Ticket** open karke security verification clear karani hogi.",
+                'order'    => 26,
+            ],
+            [
+                'category' => 'Billing & Wallet',
+                'question' => 'Where can I view or download my official invoices and GST receipts? / Invoice aur payment receipt kaise download karein?',
+                'answer'   => "Official GST invoices download karne ke steps:\n\n1. SaluteHost Client Portal (`salutehost.com/login`) par login karein.\n2. Left sidebar se **My Orders** (ya **Payment History**) par click karein.\n3. Apne Order / Invoice number (e.g. `Order #28`) par click karein.\n4. Detail breakdown page par right side me **Print Receipt** / **Download PDF** button par click karein.\n5. Paid invoices par green **COMPLETED / PAID** stamp aur payment transaction reference UTR clearly recorded hota hai.",
+                'order'    => 27,
+            ],
+            [
+                'category' => 'Billing & Wallet',
+                'question' => 'What is SaluteHost refund policy and 7-Day Money-Back Guarantee? / SaluteHost ki refund policy aur money-back guarantee kya hai?',
+                'answer'   => "SaluteHost ki transparent aur customer-friendly refund policy:\n\n• **Web & Cloud Hosting:** Sabhi Web Hosting aur Cloud plans par **7-Day Money-Back Guarantee** milti hai. Agar aap hamari server performance se satisfied nahi hain, toh 7 dinon ke andar ticket raise karke 100% refund claim kar sakte hain.\n• **Domains & Registry Addons:** Domain registration aur registry renewals non-refundable hote hain kyunki registry authority (.in, .com) instantly registration fee lock kar leti hai.\n• **Refund Processing:** Refund approved hone ke baad 2-5 business days mein aapke original payment source ya SaluteHost Wallet mein credit ho jata.",
+                'order'    => 28,
+            ],
+
+            // SECTION 6: SUPPORT & TROUBLESHOOTING (Order 29 - 32)
+            [
+                'category' => 'Support & Troubleshooting',
+                'question' => 'Why is my website showing 403 Forbidden error and how do I fix it? / 403 Forbidden Error kaise fix karein?',
+                'answer'   => "403 Forbidden website par directory permissions ya file access block hone par aata hai. Ise theek karne ke 3 steps:\n\n1. **Check Index File:** cPanel File Manager mein `public_html` directory open karein aur ensure karein ki `index.php` ya `index.html` file maujood hai.\n2. **File Permissions:** Sabhi folders ki permission `755` aur files ki permission `644` honi chahiye. Kisi bhi file par `000` ya `777` permission hone se server 403 error throw karta hai.\n3. **.htaccess Rules:** Agar `.htaccess` mein wrong IP ban ya RewriteRule hai, toh file ko temporarily rename karke `.htaccess.bak` karein aur website refresh karein.",
+                'order'    => 29,
+            ],
+            [
+                'category' => 'Support & Troubleshooting',
+                'question' => 'How to fix 500 Internal Server Error or Error Establishing Database Connection? / 500 Error ya Database error kaise fix karein?',
+                'answer'   => "• **500 Internal Server Error:**\n1. cPanel File Manager mein `public_html/error_log` file open karein. Wahan exact PHP syntax error aur line number mil jayega.\n2. cPanel mein **Select PHP Version > Options** mein jakar `memory_limit` ko `512M` karein.\n\n• **Error Establishing a Database Connection:**\n1. Configuration file check karein (WordPress ke liye `wp-config.php`, Laravel ke liye `.env`).\n2. DB_NAME, DB_USER, aur DB_PASSWORD verify karein.\n3. cPanel > **MySQL Databases** mein jakar ensure karein ki Database User database se linked hai aur **ALL PRIVILEGES** granted hain.",
+                'order'    => 30,
+            ],
+            [
+                'category' => 'Support & Troubleshooting',
+                'question' => 'How do I open a Support Ticket and link my Related Service (Hosting, Domain, VPS)? / Support Ticket kaise open karein aur service kaise link karein?',
+                'answer'   => "Support Ticket submit karne ke steps:\n\n1. Client Portal mein login karein aur left menu se **Support Tickets** par click karein.\n2. Blue **Open Ticket** button dabayein.\n3. **Ticket Subject:** Issue ka brief title enter karein (e.g. SSL Issue, DNS update).\n4. **Related Service:** Dropdown se apna specific server, domain, Hermes VPS ya n8n VPS select karein taaki engineering team direct usi service ko diagnose kar sake.\n5. **Department:** Technical Support, Billing, ya Sales chunein, screenshot attach karein aur **Submit Ticket** par click karein.\n\nAvg ticket response time: Under 15-30 minutes!",
+                'order'    => 31,
+            ],
+            [
+                'category' => 'Support & Troubleshooting',
+                'question' => 'How can I connect with 24/7 Human Support on WhatsApp or Live Chat? / Human Support ya WhatsApp se direct baat kaise karein?',
+                'answer'   => "SaluteHost par real human engineering team 24/7 assist karne ke liye available hai:\n\n1. **WhatsApp Instant Support:** Direct hamari senior technical team se WhatsApp par chat karein: **+91 9709910760** (Average response time < 5 minutes).\n2. **Live Chat Takeover:** ISI chatbox widget mein jab aapko human agent se baat karni ho, bas 'Talk to Agent' ya 'Human Help' type karein ya button click karein. Hamara live operator turant conversation take over kar lega.\n3. **Support Desk:** SaluteHost Client Portal ke **Support Tickets** desk se formal issue logging karein.",
+                'order'    => 32,
             ],
         ];
     }
