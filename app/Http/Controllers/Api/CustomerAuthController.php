@@ -96,7 +96,13 @@ class CustomerAuthController extends Controller
         }
         $account = CustomerAuthService::findAccount($property, $v['email']);
 
-        return response()->json(['success' => true, 'data' => ['exists' => (bool) $account]]);
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'exists' => (bool) $account,
+                'locked' => $account ? $account->isLocked() : false,
+            ]
+        ]);
     }
 
     public function login(Request $request): JsonResponse

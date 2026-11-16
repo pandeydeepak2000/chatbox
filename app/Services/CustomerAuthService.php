@@ -46,9 +46,21 @@ class CustomerAuthService
 
     public static function findAccount(Property $property, string $email): ?CustomerAccount
     {
-        return CustomerAccount::where('property_id', $property->id)
-            ->where('email_normalized', CustomerAccount::normalizeEmail($email))
+        $normalized = CustomerAccount::normalizeEmail($email);
+        $account = CustomerAccount::where('property_id', $property->id)
+            ->where('email_normalized', $normalized)
             ->first();
+
+        if (! $account && $property->tenant_id) {
+            $account = CustomerAccount::where('tenant_id', $property->tenant_id)
+                ->where('email_normalized', $normalized)
+                ->first();
+            if ($account) {
+                $account->update(['property_id' => $property->id]);
+            }
+        }
+
+        return $account;
     }
 
     /** @return array{0: ?CustomerAccount, 1: ?string} [account, error] */
