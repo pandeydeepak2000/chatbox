@@ -7,6 +7,8 @@
 
 ---
 
+> Technical details of the escalation state machine, Telegram alerts, AI administration and company isolation: see [PREMIUM_SUPPORT_FLOW.md](PREMIUM_SUPPORT_FLOW.md).
+
 ## 1. ChatBox in one minute
 
 ChatBox puts a chat button on your websites. When a customer asks something:
@@ -99,7 +101,8 @@ Assistant: Set a 6-digit Support PIN. Next time, your e-mail + this PIN opens al
 | "How do I reset my client area password?" | Matches an FAQ → instant answer |
 | "Is shared hosting refundable?" | AI answers from the approved *Refund policy* (if AI is on) |
 | "My website shows a 500 error after installing a plugin" | No reliable answer → ticket `AMB-000001` is created, Rahul sees the reference, the team is alerted |
-| "Talk to a human" (or the **Talk to a human** button) | Working hours + someone online → live hand-over. Otherwise → ticket, and the assistant states the working hours. |
+| "Talk to a human" (or the **Talk to a human** button) | Working hours + someone online → the customer is told the request was sent to the senior team for review and to stay in the chat (no promise of a time; the chat says an agent has joined only when one really does). Otherwise → ticket, and the assistant states the working hours. |
+| "Are you a bot?" / "kya aap bot ho?" | A truthful answer that this is an automated assistant and a team member can join; it is not turned into a transfer. |
 | "Please refund my payment" / "renew my domain" / "change my DNS" | The assistant **never** does these. A ticket is created for staff. |
 
 The assistant replies in the customer's language: English, Hindi or Roman Hinglish.
