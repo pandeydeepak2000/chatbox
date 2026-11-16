@@ -31,24 +31,42 @@ class Notifier
 
     // ------------------------------------------------------------------ events
 
+    public static function formatWaitDuration(int|float $mins): string
+    {
+        $mins = (int) round($mins);
+        if ($mins < 60) {
+            return "{$mins}m";
+        }
+        $hours = floor($mins / 60);
+        $remMins = $mins % 60;
+
+        return $remMins > 0 ? "{$hours}h {$remMins}m" : "{$hours}h";
+    }
+
+    public static function customerEmailForTicket(Ticket $ticket): ?string
+    {
+        return $ticket->customerAccount?->email
+            ?: $ticket->visitor?->email
+            ?: $ticket->conversation?->customerAccount?->email
+            ?: $ticket->conversation?->visitor?->email;
+    }
+
     public static function ticketCreated(Ticket $ticket): void
     {
-        $ticket->loadMissing(['property', 'visitor', 'customerAccount']);
+        $ticket->loadMissing(['property', 'visitor', 'customerAccount', 'conversation.customerAccount', 'conversation.visitor']);
         $title = "New ticket {$ticket->reference}";
         $body = "{$ticket->property?->site_name}: {$ticket->subject}";
         self::toUsers(self::staffFor($ticket->property, $ticket->assigned_to), 'ticket.created', $title, $body, ['ticket_id' => $ticket->id]);
 
-        $customerEmail = $ticket->customerAccount?->email ?: $ticket->visitor?->email;
+        $customerEmail = self::customerEmailForTicket($ticket);
         $lines = [
             "🎫 {$title} (" . (Ticket::PRIORITIES[$ticket->priority] ?? $ticket->priority) . ')',
             "Website: {$ticket->property?->site_name}",
+            '📧 Customer: ' . ($customerEmail ?: 'Not provided'),
+            "Subject: {$ticket->subject}",
+            'Source: ' . str_replace('_', ' ', $ticket->source),
+            'Open: ' . url('/app/tickets?id=' . $ticket->id),
         ];
-        if ($customerEmail) {
-            $lines[] = "📧 Customer: {$customerEmail}";
-        }
-        $lines[] = "Subject: {$ticket->subject}";
-        $lines[] = 'Source: ' . str_replace('_', ' ', $ticket->source);
-        $lines[] = 'Open: ' . url('/app/tickets?id=' . $ticket->id);
 
         self::telegram($ticket->tenant_id, 'ticket.created', implode("\n", $lines));
     }
@@ -118,36 +136,47 @@ class Notifier
         if (! \Illuminate\Support\Facades\Cache::add('notify:human:' . $conversation->id, 1, 600)) {
             return;
         }
-        $conversation->loadMissing(['property', 'visitor']);
+        $conversation->loadMissing(['property', 'visitor', 'customerAccount']);
         $who = $conversation->visitor?->name ?: 'A visitor';
+        $email = $conversation->customerAccount?->email ?: $conversation->visitor?->email;
         self::toUsers(self::staffFor($conversation->property), 'human.requested', 'Customer wants a human', "{$who} on {$conversation->property?->site_name} asked to talk to a person.", ['conversation_id' => $conversation->id]);
         self::telegram($conversation->property->tenant_id, 'human.requested', implode("\n", [
             '🙋 Customer asked for a human',
             "Website: {$conversation->property?->site_name}",
             "Visitor: {$who}",
+            '📧 Customer: ' . ($email ?: 'Not provided'),
             'Open: ' . url('/app/inbox?id=' . $conversation->id),
         ]));
     }
 
     public static function ticketAssigned(Ticket $ticket, User $assignee, User $by): void
     {
+        $ticket->loadMissing(['property', 'visitor', 'customerAccount', 'conversation.customerAccount', 'conversation.visitor']);
+        $email = self::customerEmailForTicket($ticket);
+        $emailLine = $email ? "\n📧 Customer: {$email}" : '';
+
         self::toUsers(collect([$assignee]), 'ticket.assigned', "Ticket {$ticket->reference} assigned to you", "{$by->name} assigned: {$ticket->subject}", ['ticket_id' => $ticket->id]);
-        self::telegram($ticket->tenant_id, 'ticket.assigned', "👤 {$ticket->reference} assigned to {$assignee->name} by {$by->name}\n{$ticket->subject}");
+        self::telegram($ticket->tenant_id, 'ticket.assigned', "👤 {$ticket->reference} assigned to {$assignee->name} by {$by->name}{$emailLine}\nSubject: {$ticket->subject}");
     }
 
     public static function ticketReopened(Ticket $ticket): void
     {
-        $ticket->loadMissing('property');
+        $ticket->loadMissing(['property', 'visitor', 'customerAccount', 'conversation.customerAccount', 'conversation.visitor']);
+        $email = self::customerEmailForTicket($ticket);
+        $emailLine = $email ? "\n📧 Customer: {$email}" : '';
+
         $users = $ticket->assigned_to ? User::whereKey($ticket->assigned_to)->get() : self::staffFor($ticket->property);
         self::toUsers($users, 'ticket.reopened', "Customer replied to {$ticket->reference}", $ticket->subject, ['ticket_id' => $ticket->id]);
-        self::telegram($ticket->tenant_id, 'ticket.reopened', "↩️ Customer replied to resolved ticket {$ticket->reference} — back to the team.\n{$ticket->subject}");
+        self::telegram($ticket->tenant_id, 'ticket.reopened', "↩️ Customer replied to resolved ticket {$ticket->reference} — back to the team.{$emailLine}\nSubject: {$ticket->subject}");
     }
 
     /** New conversation in a Sales department (or tagged as sales): alert + 30-working-minute watch. */
     public static function salesInquiry(Conversation $conversation): void
     {
-        $conversation->loadMissing(['property', 'visitor', 'department']);
+        $conversation->loadMissing(['property', 'visitor', 'customerAccount', 'department']);
         $tenantId = $conversation->property->tenant_id;
+        $email = $conversation->customerAccount?->email ?: $conversation->visitor?->email;
+        $emailLine = $email ? "\n📧 Customer: {$email}" : '';
         $owner = self::salesOwner($conversation->property);
         Task::create([
             'tenant_id' => $tenantId,
@@ -159,7 +188,7 @@ class Notifier
             'due_at' => now(),
         ]);
         self::toUsers($owner ? collect([$owner]) : self::staffFor($conversation->property), 'sales.inquiry', 'New sales enquiry', ($conversation->visitor?->name ?: 'A visitor') . ' on ' . $conversation->property->site_name, ['conversation_id' => $conversation->id]);
-        self::telegram($tenantId, 'sales.inquiry', "💼 New sales enquiry on {$conversation->property->site_name}\nVisitor: " . ($conversation->visitor?->name ?: 'unknown') . "\nOpen: " . url('/app/inbox?id=' . $conversation->id));
+        self::telegram($tenantId, 'sales.inquiry', "💼 New sales enquiry on {$conversation->property->site_name}\nVisitor: " . ($conversation->visitor?->name ?: 'unknown') . "{$emailLine}\nOpen: " . url('/app/inbox?id=' . $conversation->id));
     }
 
     public static function cancelSalesAlert(Conversation $conversation): void
@@ -252,7 +281,7 @@ class Notifier
         Task::where('type', 'sales_first_response')->where('status', 'pending')
             ->with('property.tenant')->limit(200)->get()
             ->each(function (Task $task) use (&$count) {
-                $conversation = Conversation::find($task->conversation_id);
+                $conversation = Conversation::with(['customerAccount', 'visitor'])->find($task->conversation_id);
                 if (! $conversation || $conversation->first_human_response_at) {
                     $task->forceFill(['status' => 'done', 'completed_at' => now()])->save();
 
@@ -265,7 +294,9 @@ class Notifier
                     return;
                 }
                 $conversation->forceFill(['sales_alert_sent_at' => now()])->save();
-                self::telegram($task->tenant_id, 'sales.overdue', "⏰ Sales enquiry on {$task->property?->site_name} has waited more than 30 working minutes for a first human reply.\nOpen: " . url('/app/inbox?id=' . $conversation->id));
+                $email = $conversation->customerAccount?->email ?: $conversation->visitor?->email;
+                $emailLine = $email ? "\n📧 Customer: {$email}" : '';
+                self::telegram($task->tenant_id, 'sales.overdue', "⏰ Sales enquiry on {$task->property?->site_name} has waited more than 30 working minutes for a first human reply.{$emailLine}\nOpen: " . url('/app/inbox?id=' . $conversation->id));
                 self::toUsers(User::where('tenant_id', $task->tenant_id)->where('role', 'admin')->get(), 'sales.overdue', 'Sales enquiry waiting > 30 working minutes', $task->title, ['conversation_id' => $conversation->id]);
                 $count++;
             });
@@ -277,7 +308,10 @@ class Notifier
     public static function dailyDigest(): int
     {
         $sent = 0;
-        $tickets = Ticket::whereIn('status', Ticket::UNRESOLVED)->get()->groupBy('tenant_id');
+        $tickets = Ticket::whereIn('status', Ticket::UNRESOLVED)
+            ->with(['customerAccount', 'visitor', 'conversation.customerAccount', 'conversation.visitor'])
+            ->get()
+            ->groupBy('tenant_id');
         foreach ($tickets as $tenantId => $list) {
             foreach ($list->groupBy(fn ($t) => $t->assigned_to ?? 'unassigned') as $owner => $own) {
                 $users = $owner === 'unassigned'
@@ -287,7 +321,17 @@ class Notifier
                 self::toUsers($users, 'tickets.digest', $own->count() . ' unresolved ticket(s)', $lines, ['ticket_ids' => $own->pluck('id')->all()]);
                 $sent += $users->count();
             }
-            self::telegram($tenantId, 'tickets.pending_digest', "📋 {$list->count()} unresolved ticket(s) at 10 AM:\n" . $list->take(15)->map(fn ($t) => "• {$t->reference} — {$t->subject}")->implode("\n"));
+            $digestLines = $list->take(15)->map(function ($t) {
+                $email = self::customerEmailForTicket($t);
+                $line = "• {$t->reference} — {$t->subject}";
+                if ($email) {
+                    $line .= "\n  📧 {$email}";
+                }
+
+                return $line;
+            })->implode("\n");
+
+            self::telegram($tenantId, 'tickets.pending_digest', "📋 {$list->count()} unresolved ticket(s) at 10 AM:\n" . $digestLines);
             Ticket::whereIn('id', $list->pluck('id'))->update(['last_reminded_at' => now()]);
         }
 
@@ -309,15 +353,22 @@ class Notifier
                 $q->whereNull('last_reminded_at')
                     ->orWhere('last_reminded_at', '<=', now()->subMinutes(30));
             })
-            ->with(['property.tenant'])
+            ->with(['property.tenant', 'customerAccount', 'visitor', 'conversation.customerAccount', 'conversation.visitor'])
             ->get()
             ->groupBy('tenant_id');
 
         foreach ($pendingTickets as $tenantId => $tickets) {
             $ticketLines = $tickets->take(10)->map(function ($t) {
                 $mins = round($t->created_at->diffInMinutes(now()));
+                $waitStr = self::formatWaitDuration($mins);
+                $email = self::customerEmailForTicket($t);
 
-                return "• {$t->reference} — {$t->subject} (waiting {$mins}m)";
+                $line = "• {$t->reference} — {$t->subject} (waiting {$waitStr})";
+                if ($email) {
+                    $line .= "\n  📧 {$email}";
+                }
+
+                return $line;
             })->implode("\n");
 
             $tenantName = $tickets->first()?->property?->tenant?->name ?? 'Company';

@@ -7,6 +7,7 @@ use App\Models\CustomerAccount;
 use App\Models\CustomerOtp;
 use App\Models\CustomerSession;
 use App\Models\Property;
+use App\Models\Ticket;
 use App\Models\Visitor;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -319,6 +320,8 @@ class CustomerAuthService
             'email' => $visitor->email ? null : $account->email,
         ]))->save();
         Conversation::where('visitor_id', $visitor->id)->whereNull('customer_account_id')
+            ->update(['customer_account_id' => $account->id]);
+        Ticket::where('visitor_id', $visitor->id)->whereNull('customer_account_id')
             ->update(['customer_account_id' => $account->id]);
     }
 

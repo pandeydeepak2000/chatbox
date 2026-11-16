@@ -304,4 +304,52 @@ class TicketsAndTakeoverTest extends TestCase
         $this->actingAs($this->ownerA, 'sanctum')->postJson("/api/v1/notifications/{$digest->id}/read")->assertOk();
         $this->assertSame(1, Ticket::whereIn('status', Ticket::UNRESOLVED)->count());
     }
+
+    public function test_pending_ticket_reminders_include_hours_and_client_email(): void
+    {
+        $this->assertSame('45m', Notifier::formatWaitDuration(45));
+        $this->assertSame('2h', Notifier::formatWaitDuration(120));
+        $this->assertSame('37h 37m', Notifier::formatWaitDuration(2257));
+        $this->assertSame('87h 6m', Notifier::formatWaitDuration(5226));
+
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true], 200)]);
+        NotificationChannel::create([
+            'tenant_id' => $this->tenantA->id,
+            'name' => 'Support Group',
+            'bot_token' => '1234567:' . str_repeat('B', 35),
+            'chat_id' => '-100999888777',
+            'events' => ['tickets.reminders'],
+        ]);
+
+        [$token, $convId] = $this->startChat($this->siteA, 'need domain price');
+        $customer = \App\Models\CustomerAccount::create([
+            'tenant_id' => $this->tenantA->id,
+            'property_id' => $this->siteA->id,
+            'email' => 'client@salutehost.com',
+            'email_normalized' => 'client@salutehost.com',
+            'pin_hash' => bcrypt('123456'),
+        ]);
+        \App\Models\Conversation::whereKey($convId)->update(['customer_account_id' => $customer->id]);
+
+        $ticket = Ticket::where('conversation_id', $convId)->first();
+        if (! $ticket) {
+            [$ticket] = TicketService::createOrReuse(\App\Models\Conversation::find($convId), ['source' => 'transfer_timeout']);
+        }
+        $ticket->forceFill([
+            'customer_account_id' => $customer->id,
+            'created_at' => now()->subMinutes(2257),
+            'last_reminded_at' => null,
+        ])->save();
+
+        $count = Notifier::checkPendingTicketReminders();
+        $this->assertGreaterThanOrEqual(1, $count);
+
+        Http::assertSent(function ($request) {
+            $text = $request['text'] ?? '';
+
+            return str_contains($text, 'Pending Support Tickets Alert')
+                && str_contains($text, 'waiting 37h 37m')
+                && str_contains($text, 'client@salutehost.com');
+        });
+    }
 }
