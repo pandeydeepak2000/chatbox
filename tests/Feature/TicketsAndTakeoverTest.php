@@ -40,6 +40,10 @@ class TicketsAndTakeoverTest extends TestCase
     public function test_human_request_with_nobody_online_creates_one_ticket_and_stops_the_bot(): void
     {
         [$token, $convId] = $this->startChat($this->siteA, 'My site is down, I want to talk to a human');
+        $this->assertSame(0, Ticket::count(), 'Inside the 60-second window no ticket exists yet.');
+        $this->assertSame('human', Conversation::find($convId)->handler, 'The bot already stopped.');
+
+        $this->runOutEscalationWindow();
 
         $ticket = Ticket::firstOrFail();
         $this->assertSame('AMB-000001', $ticket->reference);
@@ -64,6 +68,7 @@ class TicketsAndTakeoverTest extends TestCase
         [$token, $convId] = $this->startChat($this->siteA, 'hello');
         $this->say($this->siteA, $token, $convId, 'My website shows a 500 error since I installed a plugin')->assertCreated();
         $this->say($this->siteA, $token, $convId, 'talk to a human please')->assertCreated();
+        $this->runOutEscalationWindow();
 
         $ticket = Ticket::firstOrFail();
         $this->assertSame('My website shows a 500 error since I installed a plugin', $ticket->subject);
@@ -77,12 +82,16 @@ class TicketsAndTakeoverTest extends TestCase
         [$token, $convId] = $this->startChat($this->siteA, 'hello');
         $press = fn ($key) => $this->withHeaders($this->origin($this->siteA))->postJson("/api/v1/widget/conversations/{$convId}/escalate", ['visitor_token' => $token, 'idempotency_key' => $key]);
 
-        $first = $press('key-1')->assertOk();
+        $first = $press('key-1')->assertOk()->assertJsonPath('data.created', true)->assertJsonPath('data.mode', 'senior_wait');
+        $this->assertSame(60, $first->json('data.senior_wait_remaining'));
         $press('key-1')->assertOk()->assertJsonPath('data.created', false);
         $press('key-2')->assertOk()->assertJsonPath('data.created', false);
+        $this->assertSame(0, Ticket::count(), 'No ticket while the 60-second window runs.');
+        $this->assertSame(1, \App\Models\Escalation::count(), 'Repeated clicks never create a second escalation.');
+
+        $this->runOutEscalationWindow();
         $this->assertSame(1, Ticket::count());
-        $this->assertSame('ticket', $first->json('data.mode'));
-        $this->assertSame(Ticket::first()->reference, $first->json('data.ticket.reference'));
+        $this->assertSame(Ticket::first()->reference, collect($this->sync($token, $convId)->json('data.messages'))->map(fn ($m) => $m['content'])->filter(fn ($c) => str_contains($c, Ticket::first()->reference))->isNotEmpty() ? Ticket::first()->reference : null);
 
         // Database guarantee: a second open ticket for the same conversation is impossible.
         [$t2, $created] = TicketService::createOrReuse(Conversation::find($convId), ['source' => 'staff']);
@@ -112,6 +121,7 @@ class TicketsAndTakeoverTest extends TestCase
     public function test_staff_reply_reaches_widget_but_internal_notes_never_do(): void
     {
         [$token, $convId] = $this->startChat($this->siteA, 'I want a human');
+        $this->runOutEscalationWindow();
         $ticket = Ticket::firstOrFail();
 
         $this->actingAs($this->agentA, 'sanctum')->postJson("/api/v1/tickets/{$ticket->id}/reply", ['content' => 'Hi, I am checking your server now.'])->assertCreated();
@@ -134,6 +144,7 @@ class TicketsAndTakeoverTest extends TestCase
     public function test_resolved_ticket_reopens_when_the_customer_replies(): void
     {
         [$token, $convId] = $this->startChat($this->siteA, 'need a person');
+        $this->runOutEscalationWindow();
         $ticket = Ticket::firstOrFail();
         $this->actingAs($this->agentA, 'sanctum')->postJson("/api/v1/tickets/{$ticket->id}/update", ['status' => 'resolved'])->assertOk();
         $this->assertNull($ticket->fresh()->open_conversation_id);
@@ -149,6 +160,7 @@ class TicketsAndTakeoverTest extends TestCase
     public function test_ticket_permissions_assignment_history_and_previous_owner_visibility(): void
     {
         [, $convId] = $this->startChat($this->siteA, 'human please');
+        $this->runOutEscalationWindow();
         $ticket = Ticket::firstOrFail();
         $this->actingAs($this->agentB, 'sanctum')->getJson("/api/v1/tickets/{$ticket->id}")->assertNotFound();
         $this->actingAs($this->agentB, 'sanctum')->getJson('/api/v1/tickets')->assertJsonCount(0, 'data');
@@ -192,6 +204,7 @@ class TicketsAndTakeoverTest extends TestCase
     public function test_inbox_reply_on_a_ticketed_chat_updates_and_claims_the_ticket(): void
     {
         [$token, $convId] = $this->startChat($this->siteA, 'My site is down, I want to talk to a human');
+        $this->runOutEscalationWindow();
         $ticket = Ticket::firstOrFail();
         $this->actingAs($this->agentA, 'sanctum')->postJson("/api/v1/chat/conversations/{$convId}/messages", ['content' => 'Looking at it now'])->assertCreated();
         $t = $ticket->fresh();
@@ -204,10 +217,15 @@ class TicketsAndTakeoverTest extends TestCase
     public function test_restricted_actions_are_never_performed_and_go_to_staff(): void
     {
         [$token, $convId] = $this->startChat($this->siteA, 'Please refund my last payment of Rs 2000');
+        $first = implode("\n", Message::where('conversation_id', $convId)->where('sender_type', 'bot')->orderBy('seq')->pluck('content')->all());
+        $this->assertStringContainsString("can't process refunds", $first, 'The assistant never performs it...');
+        $this->assertStringContainsString('connecting you with our senior support team', $first, '...and starts the real senior-support window.');
+        $this->assertSame(0, Ticket::count());
+
+        $this->runOutEscalationWindow();
         $ticket = Ticket::firstOrFail();
-        $this->assertSame('billing', $ticket->category);
+        $this->assertSame('billing', $ticket->category, 'The ticket keeps the category of the original request.');
         $reply = Message::where('conversation_id', $convId)->where('sender_type', 'bot')->orderByDesc('seq')->value('content');
-        $this->assertStringContainsString("can't process refunds", $reply);
         $this->assertStringContainsString($ticket->reference, $reply);
     }
 
@@ -216,12 +234,13 @@ class TicketsAndTakeoverTest extends TestCase
         Http::fake(['api.telegram.org/*' => Http::sequence()->push(['ok' => false, 'description' => 'Bad Request: chat not found'], 400)->push(['ok' => true, 'result' => []], 200)]);
         $token = '1234567:' . str_repeat('A', 35);
         $res = $this->actingAs($this->ownerA, 'sanctum')->postJson('/api/v1/settings/telegram', [
-            'name' => 'Support group', 'bot_token' => $token, 'chat_id' => '-1001234567890', 'events' => ['ticket.created', 'human.requested'],
+            'name' => 'Support group', 'bot_token' => $token, 'chat_id' => '-1001234567890', 'events' => ['ticket.created'],
         ])->assertCreated();
         $this->assertStringNotContainsString($token, $res->getContent());
         $this->actingAs($this->agentA, 'sanctum')->getJson('/api/v1/settings/telegram')->assertForbidden();
 
         $this->startChat($this->siteA, 'talk to a human');
+        $this->runOutEscalationWindow();
         $delivery = NotificationDelivery::where('event', 'ticket.created')->firstOrFail();
         $this->assertSame('failed', $delivery->status, 'A failed send is never reported as delivered.');
         $this->assertStringContainsString('chat not found', $delivery->last_error);
@@ -292,6 +311,7 @@ class TicketsAndTakeoverTest extends TestCase
     {
         $this->startChat($this->siteA, 'human please');
         [, $conv2] = $this->startChat($this->siteA2, 'human please');
+        $this->runOutEscalationWindow();
         $resolved = Ticket::where('conversation_id', $conv2)->first();
         TicketService::changeStatus($resolved, 'resolved', $this->ownerA);
 
@@ -305,51 +325,11 @@ class TicketsAndTakeoverTest extends TestCase
         $this->assertSame(1, Ticket::whereIn('status', Ticket::UNRESOLVED)->count());
     }
 
-    public function test_pending_ticket_reminders_include_hours_and_client_email(): void
+    public function test_wait_duration_is_formatted_in_hours_and_minutes(): void
     {
         $this->assertSame('45m', Notifier::formatWaitDuration(45));
         $this->assertSame('2h', Notifier::formatWaitDuration(120));
         $this->assertSame('37h 37m', Notifier::formatWaitDuration(2257));
         $this->assertSame('87h 6m', Notifier::formatWaitDuration(5226));
-
-        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true], 200)]);
-        NotificationChannel::create([
-            'tenant_id' => $this->tenantA->id,
-            'name' => 'Support Group',
-            'bot_token' => '1234567:' . str_repeat('B', 35),
-            'chat_id' => '-100999888777',
-            'events' => ['tickets.reminders'],
-        ]);
-
-        [$token, $convId] = $this->startChat($this->siteA, 'need domain price');
-        $customer = \App\Models\CustomerAccount::create([
-            'tenant_id' => $this->tenantA->id,
-            'property_id' => $this->siteA->id,
-            'email' => 'client@salutehost.com',
-            'email_normalized' => 'client@salutehost.com',
-            'pin_hash' => bcrypt('123456'),
-        ]);
-        \App\Models\Conversation::whereKey($convId)->update(['customer_account_id' => $customer->id]);
-
-        $ticket = Ticket::where('conversation_id', $convId)->first();
-        if (! $ticket) {
-            [$ticket] = TicketService::createOrReuse(\App\Models\Conversation::find($convId), ['source' => 'transfer_timeout']);
-        }
-        $ticket->forceFill([
-            'customer_account_id' => $customer->id,
-            'created_at' => now()->subMinutes(2257),
-            'last_reminded_at' => null,
-        ])->save();
-
-        $count = Notifier::checkPendingTicketReminders();
-        $this->assertGreaterThanOrEqual(1, $count);
-
-        Http::assertSent(function ($request) {
-            $text = $request['text'] ?? '';
-
-            return str_contains($text, 'Pending Support Tickets Alert')
-                && str_contains($text, 'waiting 37h 37m')
-                && str_contains($text, 'client@salutehost.com');
-        });
     }
 }

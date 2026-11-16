@@ -148,9 +148,13 @@ class SecurityReviewFixesTest extends TestCase
     public function test_sec09_human_request_alerts_are_throttled_per_conversation(): void
     {
         $conv = $this->visitorWithChat();
-        Notifier::humanRequested($conv);
-        Notifier::humanRequested($conv);
-        Notifier::humanRequested($conv);
+        $esc = \App\Models\Escalation::create([
+            'tenant_id' => $this->tenantA->id, 'property_id' => $conv->property_id, 'conversation_id' => $conv->id, 'reason' => 'customer_request',
+            'escalated_at' => now(), 'deadline_at' => now()->addSeconds(60), 'status' => 'waiting', 'open_key' => $conv->id,
+        ]);
+        Notifier::escalationRequested($conv, $esc);
+        Notifier::escalationRequested($conv, $esc);
+        Notifier::escalationRequested($conv, $esc);
         $this->assertSame(1, StaffNotification::where('type', 'human.requested')->where('user_id', $this->ownerA->id)->count());
     }
 

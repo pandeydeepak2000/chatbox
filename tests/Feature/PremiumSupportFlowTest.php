@@ -73,7 +73,7 @@ class PremiumSupportFlowTest extends TestCase
 
     // ---------------------------------------------------------------- honest escalation (team online)
 
-    public function test_escalation_never_claims_a_completed_transfer_or_a_one_minute_promise(): void
+    public function test_escalation_shows_the_real_window_and_never_claims_a_completed_transfer(): void
     {
         $this->online();
         [$token, $convId] = $this->startChat($this->siteA, 'talk to a human please');
@@ -83,16 +83,14 @@ class PremiumSupportFlowTest extends TestCase
         $this->assertSame(SM::QUEUED_FOR_TEAM, $conv->support_state);
 
         $all = implode("\n", $this->botTexts($convId));
-        $this->assertStringContainsString('senior team', $all);
-        $this->assertStringContainsString('stay in this chat', $all);
-        $this->assertStringNotContainsStringIgnoringCase('transferring', $all);
-        $this->assertStringNotContainsStringIgnoringCase('1 minute', $all);
+        $this->assertStringContainsString("Please wait a moment. We're connecting you with our senior support team.", $all);
         $this->assertStringNotContainsStringIgnoringCase('has joined', $all, 'No agent has joined yet, so nothing may say so.');
+        $this->assertStringNotContainsStringIgnoringCase('transferred', $all);
 
-        // The widget payload never leaks internal state names or countdowns.
+        // The widget gets the server's remaining seconds, and never the internal state names.
         $sync = $this->withHeaders($this->origin($this->siteA))->getJson("/api/v1/widget/conversations/{$convId}/sync?visitor_token={$token}&after_seq=0")->assertOk();
         $this->assertTrue($sync->json('data.waiting_senior'));
-        $this->assertSame(0, $sync->json('data.senior_wait_remaining'));
+        $this->assertSame(60, $sync->json('data.senior_wait_remaining'));
         $this->assertStringNotContainsString('QUEUED_FOR_TEAM', $sync->getContent());
     }
 
@@ -257,7 +255,7 @@ class PremiumSupportFlowTest extends TestCase
 
     // ---------------------------------------------------------------- Telegram: internal, single, minimal
 
-    public function test_one_escalation_sends_one_telegram_alert_with_company_urgency_and_secure_link(): void
+    public function test_one_escalation_sends_one_telegram_alert_with_company_deadline_and_secure_link(): void
     {
         Http::fake(['api.telegram.org/*' => Http::response(['ok' => true, 'result' => []], 200)]);
         $this->actingAs($this->ownerA, 'sanctum')->postJson('/api/v1/settings/telegram', [
@@ -270,17 +268,17 @@ class PremiumSupportFlowTest extends TestCase
         $press('a')->assertOk();
         $press('b')->assertOk();
 
-        $alerts = NotificationDelivery::whereIn('event', ['chat.started', 'human.requested'])->get();
-        $this->assertCount(1, $alerts, 'One escalation = one Telegram alert, however many code paths report it.');
+        $this->assertCount(1, NotificationDelivery::where('event', 'chat.started')->get(), 'One live chat = one chat alert.');
+        $alerts = NotificationDelivery::where('event', 'human.requested')->get();
+        $this->assertCount(1, $alerts, 'One escalation = one senior-support alert, however many code paths report it.');
 
         $text = $alerts->first()->message;
         $this->assertStringContainsString('AmbitionHost', $text);
         $this->assertStringContainsString('Ambition Hosting', $text);
-        $this->assertStringContainsString('Urgency:', $text);
+        $this->assertStringContainsString('join before', $text);
         $this->assertStringContainsString('/app/inbox?id=' . $convId, $text);
         $this->assertStringContainsString('sign-in required', $text);
     }
-
     public function test_masked_email_hides_most_of_the_address(): void
     {
         $this->assertSame('pr***@example.com', Notifier::maskEmail('private.person@example.com'));

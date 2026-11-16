@@ -165,6 +165,7 @@ class AiKnowledgeTest extends TestCase
             $fake = $this->enableAi($this->tenantA, new \Tests\Support\FakeLlm());
             $setup($fake);
             [, $convId] = $this->startChat($this->siteA, "invoice renewal billing question {$name}");
+            $this->runOutEscalationWindow(); // the real 60-second window ends, nobody joined
             $this->assertNotNull(Ticket::where('conversation_id', $convId)->first(), "{$name} must escalate to a ticket");
             $this->assertStringNotContainsString('payment was received', $this->botReplies($convId)->implode(' '), $name);
             $this->assertSame('human', Conversation::find($convId)->handler, $name);
@@ -196,6 +197,7 @@ class AiKnowledgeTest extends TestCase
         [$token, $convId] = $this->startChat($this->siteA, 'hosting problem');
         $this->assertSame('Which service do you mean?', $this->botReplies($convId)->last());
         $this->say($this->siteA, $token, $convId, 'the hosting thing')->assertCreated();
+        $this->runOutEscalationWindow();
         $this->assertNotNull(Ticket::where('conversation_id', $convId)->first(), 'Second clarification request becomes an escalation.');
     }
 
@@ -228,6 +230,7 @@ class AiKnowledgeTest extends TestCase
         $callsBefore = count($fake->calls);
         \Illuminate\Support\Facades\DB::table('ai_usage_counters')->where('period', 'm:' . now()->format('Y-m'))->update(['cost_usd' => 1.00]);
         [, $convId] = $this->startChat($this->siteA, 'cpanel included in shared hosting plans which version');
+        $this->runOutEscalationWindow();
         $this->assertCount($callsBefore, $fake->calls);
         $this->assertSame('budget_month', AiBudgetService::blockReason(\App\Models\AiSetting::forTenant($this->tenantA->id), null));
         $this->assertNotNull(Ticket::where('conversation_id', $convId)->first());
@@ -241,6 +244,7 @@ class AiKnowledgeTest extends TestCase
     public function test_language_detection_explicit_switch_and_hindi_escalation(): void
     {
         [$token, $convId] = $this->startChat($this->siteA, 'मुझे किसी इंसान से बात करनी है, एजेंट से बात कराओ');
+        $this->runOutEscalationWindow();
         $this->assertSame('hi', Conversation::find($convId)->language);
         $this->assertStringContainsString('टिकट', $this->botReplies($convId)->implode(' ') . Message::where('conversation_id', $convId)->where('sender_type', 'bot')->orderByDesc('seq')->value('content'));
 

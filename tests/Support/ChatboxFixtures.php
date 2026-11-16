@@ -66,6 +66,13 @@ trait ChatboxFixtures
         ]);
     }
 
+    /** Let the 60-second senior-support window run out and let the one-minute scheduler finalise it (as cron would). */
+    protected function runOutEscalationWindow(int $seconds = 61): void
+    {
+        $this->travel($seconds)->seconds();
+        $this->artisan('chatbox:escalations')->assertSuccessful();
+    }
+
     /** Last e-mail body sent through the array mailer. */
     protected function lastMailBody(): ?string
     {
