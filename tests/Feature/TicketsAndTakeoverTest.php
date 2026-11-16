@@ -207,7 +207,7 @@ class TicketsAndTakeoverTest extends TestCase
         $ticket = Ticket::firstOrFail();
         $this->assertSame('billing', $ticket->category);
         $reply = Message::where('conversation_id', $convId)->where('sender_type', 'bot')->orderByDesc('seq')->value('content');
-        $this->assertStringContainsString("can't handle refunds", $reply);
+        $this->assertStringContainsString("can't process refunds", $reply);
         $this->assertStringContainsString($ticket->reference, $reply);
     }
 

@@ -44,8 +44,11 @@ class CustomerIdentityTest extends TestCase
 
         $ask('KNOWN@example.com')->assertOk()->assertJsonPath('data.exists', true);
         $ask('new@example.com')->assertOk()->assertJsonPath('data.exists', false);
-        // Accounts are per website: the same e-mail on another website is a new customer.
+        // One company, several websites: the customer is recognised on every website of the SAME company (commit 9321038)...
         $this->withHeaders($this->origin($this->siteA2))->postJson('/api/v1/widget/customer/identify', ['property_key' => $this->siteA2->public_key, 'email' => 'known@example.com'])
+            ->assertOk()->assertJsonPath('data.exists', true);
+        // ...but never across companies: another company's website sees a brand-new customer.
+        $this->withHeaders($this->origin($this->siteB))->postJson('/api/v1/widget/customer/identify', ['property_key' => $this->siteB->public_key, 'email' => 'known@example.com'])
             ->assertOk()->assertJsonPath('data.exists', false);
     }
 
