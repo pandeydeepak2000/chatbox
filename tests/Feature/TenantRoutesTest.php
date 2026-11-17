@@ -165,6 +165,68 @@ class TenantRoutesTest extends TestCase
         $this->assertSame('ambitionhost', $this->tenantA->fresh()->slug);
     }
 
+    /** The production case: SaluteHost already exists (auto address "salutehost") and its owner wants "salute". */
+    public function test_changing_the_address_never_recreates_the_company_or_touches_any_of_its_data(): void
+    {
+        $this->actingAs($this->ownerA, 'sanctum')->postJson('/api/v1/ai/providers/openai', ['api_key' => 'sk-test-KEEP-THIS-KEY-123456'])->assertOk();
+        app('auth')->forgetGuards();
+        [$token, $convId] = $this->startChat($this->siteA, 'talk to a human please, my site is down');          // conversation + lead + ticket (outside hours)
+        $staffToken = $this->login('agent@a.test', 'agent-pass-1', 'ambitionhost')->assertOk()->json('data.token');
+
+        $snapshot = fn () => [
+            'tenants' => Tenant::count(),
+            'users' => User::count(),
+            'properties' => Property::count(),
+            'conversations' => \App\Models\Conversation::count(),
+            'messages' => \App\Models\Message::count(),
+            'tickets' => \App\Models\Ticket::pluck('reference', 'id')->all(),
+            'leads' => \App\Models\Lead::count(),
+            'providers' => \App\Models\AiProvider::pluck('id', 'slug')->all(),
+            'key' => \App\Models\AiProvider::where('slug', 'openai')->value('api_key'),
+            'tenant' => $this->tenantA->fresh()->only(['id', 'name', 'email', 'plan', 'status', 'ticket_prefix', 'ticket_counter', 'owner_user_id', 'created_at']),
+        ];
+        $before = $snapshot();
+        $this->assertNotEmpty($before['tickets']);
+
+        $payload = ['name' => 'AmbitionHost', 'slug' => 'salute', 'timezone' => 'Asia/Kolkata', 'ticket_prefix' => 'AMB', 'working_hours' => ['start' => '09:00', 'end' => '18:00', 'days' => [1, 2, 3, 4, 5, 6, 7]]];
+        $this->actingAs($this->ownerA, 'sanctum')->postJson('/api/v1/company', $payload)->assertOk()->assertJsonPath('data.slug', 'salute');
+        app('auth')->forgetGuards();
+
+        $after = $snapshot();
+        $this->assertSame($before['tenant']['id'], $after['tenant']['id'], 'The same company, not a new one.');
+        foreach (['tenants', 'users', 'properties', 'conversations', 'messages', 'leads'] as $k) {
+            $this->assertSame($before[$k], $after[$k], "{$k} unchanged");
+        }
+        $this->assertSame($before['tickets'], $after['tickets'], 'Ticket ids and references (AMB-…) unchanged.');
+        $this->assertSame($before['providers'], $after['providers'], 'Provider rows unchanged.');
+        $this->assertSame($before['key'], $after['key'], 'The saved API key is untouched.');
+        $this->assertEquals($before['tenant'], $after['tenant'], 'Every company field except the address is identical (counter, prefix, owner, created_at).');
+
+        // Existing staff sessions, passwords, the old /app address and the website sign-in address all keep working.
+        $this->withToken($staffToken)->getJson('/api/v1/auth/me')->assertOk();
+        $this->login('agent@a.test', 'agent-pass-1', 'salute')->assertOk();
+        $this->login('agent@a.test', 'agent-pass-1')->assertOk();
+        $this->get('/app/inbox')->assertOk();
+        $this->get('/' . $this->siteA->slug . '/admin')->assertOk();
+        $this->postJson('/api/v1/auth/login', ['email' => 'agent@a.test', 'password' => 'agent-pass-1', 'website_slug' => $this->siteA->slug])->assertOk();
+        $this->get('/salute/inbox')->assertOk();
+        $this->get('/ambitionhost/inbox')->assertNotFound();
+        $this->assertSame('salute', $this->tenantA->fresh()->slug);
+    }
+
+    public function test_a_company_address_and_one_of_its_website_addresses_can_be_the_same_word(): void
+    {
+        $this->siteA->forceFill(['slug' => 'salute'])->save();
+        $this->tenantA->forceFill(['slug' => 'salute'])->save();
+
+        $this->get('/salute')->assertOk();                       // the company dashboard
+        $this->get('/salute/inbox')->assertOk();
+        $this->get('/salute/admin')->assertOk();                 // the website sign-in address (registered first, keeps priority)
+        $this->login('agent@a.test', 'agent-pass-1', 'salute')->assertOk();                                   // tenant_slug sign-in
+        $this->postJson('/api/v1/auth/login', ['email' => 'agent@a.test', 'password' => 'agent-pass-1', 'website_slug' => 'salute'])->assertOk();   // website sign-in
+        $this->postJson('/api/v1/auth/login', ['email' => 'agent@b.test', 'password' => 'agent-pass-1', 'website_slug' => 'salute'])->assertStatus(422);
+        $this->login('agent@b.test', 'agent-pass-1', 'salute')->assertStatus(422);
+    }
     public function test_the_platform_admin_can_set_an_address_without_touching_company_data(): void
     {
         $super = $this->superAdmin();

@@ -73,15 +73,40 @@ See 2b. Alerts contain company, website, chat/ticket reference, department, mask
 
 `company.data` middleware (`DenyPlatformAdmin`) returns 403 for the super admin on chats, tickets, leads, customers, knowledge, AI settings, Telegram settings, notifications and analytics. Previously `EnsureRole` gave the super admin universal access and many controllers removed the company scope for them.
 
-## 6. Admin AI
+## 6. Admin AI: providers, models, answer review
 
-- Providers: Anthropic, OpenAI (official, fixed `https://api.openai.com/v1`), OrvAPI (fixed `https://api.orvapi.com/v1`), other OpenAI-compatible (custom URL, SSRF-guarded). Keys are encrypted and never returned.
-- `POST /api/v1/ai/test-connection` (admin, throttled 5/min).
-- OrvAPI model suggestions come from https://www.orvapi.com/Model (checked 2026-11-16). That page marks models Active/Unavailable dynamically and some are paid-plan only, so always use Test connection.
-- Named providers need a price row in the platform price table, otherwise the budget guard keeps AI off (`no_price`).
-- Answer review (`/api/v1/ai/answers`, `…/review`, `reviews/{id}/approve|reject`, `quality`, `regression/run`): stars, incorrect flag, typed correction. A correction is only a proposal. Approving creates versioned, approved, website-scoped knowledge plus a regression case. Customer or model text is never promoted automatically.
-- `php artisan chatbox:ai-regression` (scheduled daily 03:30 IST) checks that every approved correction is still retrievable. It makes no AI call.
+**Five providers, one key each per company** (`ai_providers`, `ai_models`; the active choice is mirrored into `ai_settings`, so the engine, budgets and usage log are unchanged): OpenAI, Google Gemini, OrvAPI, Anthropic (Claude), Custom Provider.
 
+| Provider | Endpoint (fixed) | Model list | JSON mode |
+|---|---|---|---|
+| OpenAI | `https://api.openai.com/v1` | `GET /models` | `response_format` sent |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` (OpenAI-compatible layer) | `GET /models` (ids lose the `models/` prefix) | not sent |
+| OrvAPI | `https://api.orvapi.com/v1` | `GET /v1/models` | **not sent**: its chat completions rejects `response_format` (https://www.orvapi.com/docs/) |
+| Anthropic | official SDK | `GET /v1/models?limit=1000` | SDK structured output |
+| Custom | administrator's `https://…` address | optional discovery path | per-provider flag |
+
+- Models are discovered live, never from a hard-coded list. "Saved" ≠ "available": `catalog_status` (listed by the provider?) and `test_status` (a real request) are separate from `enabled`.
+- Statuses shown separately: API connection, selected model, AI enabled, spend. A good connection or a model test never switches AI on; making a model the default does not either. Only the administrator's toggle does.
+- Errors are classified (invalid key, rate limit, outage, unreachable, no such model). Observed against the live APIs on 2026-11-17: OpenAI, OrvAPI and Anthropic answer a bad key with HTTP 401, **Gemini with HTTP 400** ("Please pass a valid API key"); `LlmResult::kindOf()` handles both and discards the provider text, which is never stored or relayed. Keys never appear in any response, log or audit entry.
+- **Custom providers**: `https` on port 443, host name only (no IP literal), public addresses only, validated again at request time with the vetted IP pinned and redirects off, unusable until approved by a platform administrator (Platform → *Custom AI Providers*; super admin sees name, host and status only, never keys). Hosts in `CHATBOX_AI_CUSTOM_HOSTS` (comma separated, sub-domains included) are approved automatically. Changing the address requires approval again. Existing companies' custom endpoints are grandfathered as approved by the migration.
+- **Price**: the company administrator confirms input/output USD per 1M tokens for each model; the platform price table is the fallback. No price = AI stays off (`no_price`). Nothing is guessed.
+- No automatic retries (a failed request is never sent twice), per-visitor and budget limits unchanged.
+- Answer review (`/api/v1/ai/answers`, `…/review`, `reviews/{id}/approve|reject`, `quality`, `regression/run`): stars, incorrect flag, typed correction. A correction is only a proposal; approving it creates versioned, approved, website-scoped knowledge plus a regression case. `php artisan chatbox:ai-regression` (daily 03:30 IST) checks that every approved correction is still retrievable (no AI call).
+
+### Service-only assistant
+
+The assistant answers about the company's own services only. Order: greeting/small talk (free) → FAQ (free) → deterministic off-topic gate (free) → grounded AI answer → human escalation (60-second window).
+- Clearly unrelated questions (sport, politics, entertainment, jokes, weather, trivia…) get a fixed polite redirect: no ticket, no countdown, no AI call. A service signal (hosting, domain, billing, error…), the company's own vocabulary (administrator's "Services we support" list, approved document titles, FAQ questions) or matching approved knowledge always wins, so a real customer is never turned away by a keyword.
+- The model may answer `out_of_scope`, honoured only when nothing points at the company's services and always answered with the fixed text, never the model's own words.
+- A reply containing an e-mail, phone or card-like number that is not already in the conversation or the approved passages is never sent.
+
+## 6b. Company dashboard addresses
+
+`https://host/{company}` and `/{company}/inbox|tickets|leads|customers|knowledge|ai|aireview|websites|team|notifications|analytics|company` serve the same dashboard as `/app`, under the company's own address (`tenants.slug`, backfilled for every existing company from its name, unique, editable by the company admin in *Company settings* or by the platform admin; reserved words and duplicates are refused). The route is registered last, so `/app`, `/login`, `/{website}/admin` keep priority; only a real company and a known view are served, anything else is 404.
+- Sign-in at a company address accepts only that company's people (`tenant_slug`); another company's staff or a platform admin get the same generic error as a wrong password.
+- The address is presentation only: access is decided on the server from the signed-in account. A signed-in user visiting another company's address sees a "belongs to another company" screen, no data.
+- The dashboard now reads the view from the path (`/salute/inbox?id=…`); old `#/inbox` links and `/app/inbox?id=…` Telegram links are understood. Telegram/notification links use the company address.
+- Changing the address changes only `tenants.slug`: same company id, users, websites, chats, tickets, AI settings and keys, ticket counter and prefix, sessions. The old address becomes 404; `/app` keeps working.
 ## 7. Cron / polling
 
 One cPanel cron entry running `php artisan schedule:run` every minute. Scheduled: `chatbox:escalations` (every minute, first), `chatbox:reminders` (every minute: task/sales reminders, 30-minute ticket reminders, Telegram retries), `chatbox:ai-regression` (daily). The widget polls `/sync` (2.5 s while waiting, slower when idle). No Redis, WebSocket server or Supervisor is needed.
@@ -91,3 +116,5 @@ One cPanel cron entry running `php artisan schedule:run` every minute. Scheduled
 - `2026_11_16_100000_add_support_state_machine` (adds columns, state log table, backfills existing chats)
 - `2026_11_16_110000_create_ai_answer_reviews` (reviews and regression cases)
 - `2026_11_16_120000_create_escalations_chat_sessions_and_reminders` (escalations, chat sessions, Telegram `dedupe_key`, ticket pending period + reminder history)
+- `2026_11_17_100000_create_ai_providers_and_models` (provider/model tables; backfills every existing company's current provider, model and key by copying: ai_settings itself is not modified)
+- `2026_11_17_110000_add_slug_to_tenants` (company address; backfilled from the company name, unique)

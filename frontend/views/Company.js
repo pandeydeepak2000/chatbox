@@ -58,6 +58,11 @@ export default function Company({ ctx }) {
           {d.can_edit && <div className="row end"><Button variant="primary" disabled={busy} onClick={() => run(async () => {
             const r = await api('/company', { method: 'POST', body: { ...f, sales_followup_user_id: f.sales_followup_user_id || null, working_hours: { start: wh.start, end: wh.end, days: wh.days } } });
             c.setData(r);
+            // The company address is part of the page URL: after changing it, continue at the new address (same session).
+            const next = r.data?.slug;
+            if (next && d.slug && next !== d.slug && window.location.pathname.startsWith(`/${d.slug}`)) {
+              window.location.replace(`/${next}/company`);
+            }
           }, 'Company settings saved')}><Save size={15} />Save changes</Button></div>}
         </fieldset>
         <div>
