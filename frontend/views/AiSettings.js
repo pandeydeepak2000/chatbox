@@ -50,7 +50,10 @@ export default function AiSettings() {
 
   const providers = pd.providers;
   const active = providers.find((p) => p.id && p.id === pd.active.provider_id);
-  const current = providers.find((p) => p.slug === sel) || active || providers[0];
+  const customRows = providers.filter((p) => p.type === 'custom');
+  // "Custom Provider" is always an option. With none added yet it is a placeholder that offers to add one.
+  const PLACEHOLDER = { slug: '__custom__', type: 'custom', label: 'Custom Provider', models: [], api_key_set: false, enabled: true, isPlaceholder: true };
+  const current = sel === '__custom__' ? (customRows[0] || PLACEHOLDER) : (providers.find((p) => p.slug === sel) || active || providers[0]);
   const activeModel = (active?.models || []).find((m) => m.id === pd.active.model_id);
   const set = (k) => (v) => setForm({ ...form, [k]: v });
   const u = usage.data?.data;
@@ -69,7 +72,12 @@ export default function AiSettings() {
     setForm(null);
   }, 'AI settings saved');
 
-  const providerOptions = providers.map((p) => ({ value: p.slug, label: p.type === 'custom' ? `${p.name} — Custom provider` : `${p.label} — ${p.subtitle}` }));
+  const providerOptions = [
+    ...providers.filter((p) => p.type !== 'custom').map((p) => ({ value: p.slug, label: `${p.label} — ${p.subtitle}` })),
+    ...(customRows.length
+      ? customRows.map((p) => ({ value: p.slug, label: `${p.name} — Custom provider` }))
+      : [{ value: '__custom__', label: 'Custom Provider — Administrator-approved OpenAI-compatible API' }]),
+  ];
   const isAnthropicActive = d.settings.provider === 'anthropic';
 
   return (
@@ -98,19 +106,26 @@ export default function AiSettings() {
           <Field label="Provider">
             <Select value={current.slug} onChange={(v) => { setSel(v); setKeyInput(''); }} options={providerOptions} aria-label="Provider" />
           </Field>
-          {current.type === 'custom' && (
+          {current.isPlaceholder && (
+            <div className="alert alert-warn" style={{ alignItems: 'center' }}>
+              <AlertTriangle size={16} />
+              <span>No custom provider has been added yet. A custom provider must be an https OpenAI-compatible API and is approved by the platform before it can be used.</span>
+              <Button size="sm" onClick={() => setModal('custom')}><Plus size={14} />Add custom provider</Button>
+            </div>
+          )}
+          {current.type === 'custom' && !current.isPlaceholder && (
             <p className="small muted">
               {current.base_url} · <Chip map={APPROVAL} value={current.approval_status} />{current.approval_note ? ` ${current.approval_note}` : ''}
             </p>
           )}
 
-          <Field label="API key" hint={current.api_key_set ? `Saved (${current.api_key_hint}). It is stored encrypted and is never shown again.` : 'Stored encrypted and never shown again after saving. Each provider has its own key.'}>
+          {!current.isPlaceholder && <Field label="API key" hint={current.api_key_set ? `Saved (${current.api_key_hint}). It is stored encrypted and is never shown again.` : 'Stored encrypted and never shown again after saving. Each provider has its own key.'}>
             <div className="row">
               <input className="input" type="password" autoComplete="new-password" placeholder={current.api_key_set ? 'Enter a new key to replace it' : 'Paste the API key'} value={keyInput} onChange={(e) => setKeyInput(e.target.value)} aria-label="API key" />
               <Button disabled={busy || keyInput.trim().length < 8} onClick={() => act(async () => { await post(`/ai/providers/${current.slug}`, { api_key: keyInput.trim() }); setKeyInput(''); }, 'API key saved')}><KeyRound size={15} />Save key</Button>
             </div>
-          </Field>
-          <div className="row">
+          </Field>}
+          {!current.isPlaceholder && <><div className="row">
             <Button disabled={busy || !current.api_key_set} onClick={() => act(() => post(`/ai/providers/${current.slug}/test`), 'Connected')}><Plug size={15} />Test connection</Button>
             <Chip map={CONNECTION} value={current.connection_status} />
             <span className="small muted">{current.connection_message}</span>
@@ -118,7 +133,7 @@ export default function AiSettings() {
           <div className="row">
             <Toggle checked={current.enabled} onChange={(v) => act(() => post(`/ai/providers/${current.slug}`, { enabled: v }))} label="Provider enabled" />
             {current.api_key_set && <Button size="sm" disabled={busy} onClick={() => { if (window.confirm(`Remove the saved key for ${current.label}? AI replies using it will stop.`)) act(() => api(`/ai/providers/${current.slug}`, { method: 'DELETE' }), 'Removed'); }}><Trash2 size={14} />Remove key / provider</Button>}
-          </div>
+          </div></>}
 
           <Field label="Services we support" hint="One per line. The assistant answers about these (and your approved knowledge) only; anything unrelated is politely redirected without a ticket.">
             <textarea className="input" rows={4} value={form.service_scope} placeholder={'Shared hosting\nDomain registration\nVPS\nSSL certificates'} onChange={(e) => set('service_scope')(e.target.value)} aria-label="Services we support" />
@@ -143,7 +158,7 @@ export default function AiSettings() {
         </section>
       </div>
 
-      <section className="card">
+      {!current.isPlaceholder && <section className="card">
         <CardHead icon={Bot} title={`Models — ${current.label}`}>
           <div className="row">
             <Button size="sm" disabled={busy} onClick={() => setModal('model')}><Plus size={14} />Add model</Button>
@@ -179,7 +194,7 @@ export default function AiSettings() {
             </tbody>
           </table>
         </div>
-      </section>
+      </section>}
 
       {u && (
         <section className="card">

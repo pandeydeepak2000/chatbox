@@ -208,7 +208,12 @@ class AiProviderService
             return self::result(false, 0, null, 'unreachable');
         }
 
-        return self::result($res->successful(), $res->status(), $res->successful() ? ($res->json() ?: []) : null, self::classify($res->status()));
+        $code = self::classify($res->status());
+        if (! $res->successful() && $code !== 'rate_limited' && $code !== 'unavailable' && LlmResult::kindOf($res->status(), (string) $res->body()) === 'auth') {
+            $code = 'invalid_credentials';   // e.g. Gemini answers a bad key with 400, not 401
+        }
+
+        return self::result($res->successful(), $res->status(), $res->successful() ? ($res->json() ?: []) : null, $code);
     }
 
     private static function classify(int $status): string
@@ -301,9 +306,9 @@ class AiProviderService
             } else {
                 $st = $res->status;
                 [$status, $message] = match (true) {
-                    in_array($st, [401, 403], true) => ['auth_failed', self::MESSAGES['invalid_credentials']],
-                    in_array($st, [400, 404], true) => ['unavailable', 'The provider does not accept this model ID for this key (not found, retired or not enabled).'],
-                    $st === 429 => ['rate_limited', self::MESSAGES['rate_limited']],
+                    $res->kind === 'auth' || in_array($st, [401, 403], true) => ['auth_failed', self::MESSAGES['invalid_credentials']],
+                    $res->kind === 'model' || in_array($st, [400, 404], true) => ['unavailable', 'The provider does not accept this model ID for this key (not found, retired or not enabled).'],
+                    $res->kind === 'rate' || $st === 429 => ['rate_limited', self::MESSAGES['rate_limited']],
                     $st !== null && $st >= 500 => ['error', self::MESSAGES['unavailable']],
                     $st === 0 => ['error', self::MESSAGES['unreachable']],
                     default => ['error', str_contains((string) $res->error, 'valid JSON') ? 'The model answered, but not in the JSON format the assistant needs.' : self::MESSAGES['error']],

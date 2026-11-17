@@ -337,6 +337,43 @@ class AiProvidersTest extends TestCase
         $this->assertFalse((bool) AiSetting::forTenant($this->tenantA->id)->enabled, 'A successful connection never switches AI on.');
     }
 
+    /** Real behaviour observed against the live APIs (2026-11-17): Gemini answers a bad key with HTTP 400, the others with 401. */
+    public function test_gemini_style_400_for_a_bad_key_is_reported_as_an_invalid_key_not_a_generic_error(): void
+    {
+        $this->saveKey('gemini');
+        $this->fakeUpstream('generativelanguage.googleapis.com/*');
+
+        $this->upstream = fn () => Http::response(['error' => ['code' => 400, 'message' => 'Please pass a valid API key', 'status' => 'INVALID_ARGUMENT']], 400);
+        $r = $this->owner()->postJson('/api/v1/ai/providers/gemini/test')->assertOk();
+        $this->assertSame('invalid_credentials', $r->json('data.connection_status'));
+        $this->assertStringNotContainsString('Please pass', $r->getContent(), 'The provider text is never relayed.');
+
+        $m = $this->owner()->postJson('/api/v1/ai/providers/gemini/models', ['model_id' => 'gemini-test'])->json('data');
+        $this->upstream = fn () => Http::response(['error' => ['code' => 400, 'message' => 'API key not valid. Please pass a valid API key.', 'status' => 'INVALID_ARGUMENT']], 400);
+        $this->assertSame('auth_failed', $this->owner()->postJson("/api/v1/ai/models/{$m['id']}/test")->json('data.test_status'));
+
+        // A 400 that is about the model, not the key, stays a model problem.
+        $this->upstream = fn () => Http::response(['error' => ['code' => 400, 'message' => 'models/gemini-test is not found for API version v1beta']], 400);
+        $this->assertSame('unavailable', $this->owner()->postJson("/api/v1/ai/models/{$m['id']}/test")->json('data.test_status'));
+
+        // And a plain 400 with no hint is neither: still "unavailable" (the provider does not accept this request), never a key claim.
+        $this->upstream = fn () => Http::response(['error' => ['message' => 'bad request']], 400);
+        $this->assertSame('unavailable', $this->owner()->postJson("/api/v1/ai/models/{$m['id']}/test")->json('data.test_status'));
+    }
+
+    public function test_error_kind_is_derived_without_keeping_the_provider_text(): void
+    {
+        $k = fn (int $s, string $b) => \App\Services\Ai\LlmResult::kindOf($s, $b);
+        $this->assertSame('auth', $k(401, ''));
+        $this->assertSame('auth', $k(400, 'Please pass a valid API key'));
+        $this->assertSame('auth', $k(400, '{"error":{"message":"invalid x-api-key"}}'));
+        $this->assertSame('rate', $k(429, 'slow down'));
+        $this->assertSame('model', $k(404, ''));
+        $this->assertSame('model', $k(400, 'The model `x` does not exist'));
+        $this->assertNull($k(500, 'boom'));
+        $this->assertNull($k(400, 'bad request'));
+    }
+
     public function test_model_test_distinguishes_available_unknown_model_bad_key_and_bad_format(): void
     {
         $this->saveKey('openai');

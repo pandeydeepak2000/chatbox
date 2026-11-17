@@ -51,7 +51,7 @@ class OpenAiCompatibleLlmClient implements LlmClient
             return LlmResult::failed('AI request failed.', 0);
         }
         if (! $res->successful()) {
-            return LlmResult::failed('Provider error ' . $res->status(), $res->status());
+            return LlmResult::failed('Provider error ' . $res->status(), $res->status(), LlmResult::kindOf($res->status(), (string) $res->body()));
         }
         $json = $res->json();
         $text = (string) ($json['choices'][0]['message']['content'] ?? '');

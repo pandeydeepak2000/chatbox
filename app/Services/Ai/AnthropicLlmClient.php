@@ -65,7 +65,7 @@ class AnthropicLlmClient implements LlmClient
                 ? new LlmResult($data, $in, $out, $cache, $message->stopReason, null, $message->model)
                 : new LlmResult(null, $in, $out, $cache, $message->stopReason, 'Model did not return valid JSON.', $message->model);
         } catch (APIStatusException $e) {
-            return LlmResult::failed('Provider error ' . $e->getCode() . ' (' . ($e->type?->value ?? 'api_error') . ')', (int) $e->getCode());
+            return LlmResult::failed('Provider error ' . $e->getCode() . ' (' . ($e->type?->value ?? 'api_error') . ')', (int) $e->getCode(), LlmResult::kindOf((int) $e->getCode(), (string) $e->getMessage()));
         } catch (APIConnectionException $e) {
             return LlmResult::failed('Could not reach the AI provider.', 0);
         } catch (\Throwable $e) {
