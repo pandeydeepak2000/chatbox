@@ -23,8 +23,18 @@ class AiBudgetService
     /** Rough upper estimate for one support reply (input with knowledge + output). */
     private const EST_INPUT_TOKENS = 4000;
 
+    /**
+     * The price used for cost tracking and budget caps: the rate the COMPANY administrator confirmed for this model,
+     * else the platform price table. No price = AI stays off (spend could not be controlled); nothing is invented.
+     */
     public static function price(AiSetting $s): ?AiModelPrice
     {
+        $own = \App\Models\AiModel::where('tenant_id', $s->tenant_id)->where('provider_key', $s->provider)->where('model_id', $s->model)
+            ->whereNotNull('input_per_million')->whereNotNull('output_per_million')->first();
+        if ($own) {
+            return new AiModelPrice(['provider' => $s->provider, 'model' => $s->model, 'input_per_million' => $own->input_per_million, 'output_per_million' => $own->output_per_million]);
+        }
+
         return AiModelPrice::where('provider', $s->provider)->where('model', $s->model)->first();
     }
 
@@ -41,6 +51,17 @@ class AiBudgetService
         }
         if ((string) $s->api_key === '') {
             return 'no_key';
+        }
+        if ($s->provider_id && ($p = \App\Models\AiProvider::find($s->provider_id))) {
+            if (! $p->enabled) {
+                return 'provider_disabled';
+            }
+            if ($p->approval_status !== 'approved') {
+                return 'provider_not_approved';
+            }
+        }
+        if ($s->active_model_id && ($m = \App\Models\AiModel::find($s->active_model_id)) && ! $m->enabled) {
+            return 'model_disabled';
         }
         $price = self::price($s);
         if (! $price) {

@@ -58,6 +58,12 @@ return [
         'per_ip_per_day' => 10,
     ],
 
+    'ai' => [
+        // Hosts (and their sub-domains) whose "Custom provider" endpoints are approved automatically. Everything else
+        // waits for a platform administrator's decision before it can be used or tested.
+        'custom_host_allowlist' => array_values(array_filter(array_map('trim', explode(',', (string) env('CHATBOX_AI_CUSTOM_HOSTS', ''))))),
+    ],
+
     // Telegram reminders every 30 minutes for tickets waiting for SUPPORT action. A ticket that waits only for the
     // customer is not repeated to the team unless this is switched on.
     'reminders' => [

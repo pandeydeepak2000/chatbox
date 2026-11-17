@@ -15,7 +15,7 @@ export default function Company({ ctx }) {
   const [run, busy] = useAction();
   const d = c.data?.data;
 
-  if (d && !f) setF({ name: d.name, timezone: d.timezone, ticket_prefix: d.ticket_prefix, working_hours: d.working_hours, sales_followup_user_id: d.sales_followup_user_id || '', session_timeout_minutes: d.session_timeout_minutes ?? 30 });
+  if (d && !f) setF({ name: d.name, slug: d.slug || '', timezone: d.timezone, ticket_prefix: d.ticket_prefix, working_hours: d.working_hours, sales_followup_user_id: d.sales_followup_user_id || '', session_timeout_minutes: d.session_timeout_minutes ?? 30 });
   if (ctx.perms.is_super_admin && !ctx.me.user.tenant_id) return <><PageHead title="Company settings" /><p className="muted">Platform super admins are not part of a company. Use the Super Admin page.</p><ProfileCard profile={profile} setProfile={setProfile} run={run} busy={busy} /></>;
   if (c.error) return <ErrorBox error={c.error} onRetry={c.reload} />;
   if (!d || !f) return <Loading />;
@@ -29,6 +29,9 @@ export default function Company({ ctx }) {
         <fieldset className="card plain-fieldset" disabled={!d.can_edit}>
           <CardHead icon={Building2} title="Company" />
           <Field label="Company name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+          <Field label="Company address" hint={`Your team signs in at ${typeof window !== 'undefined' ? window.location.origin : ''}/${f.slug || 'your-company'} (also /${f.slug || 'your-company'}/inbox, /tickets …). 3–40 lowercase letters, numbers or hyphens. Changing it changes that link; /app keeps working.`}>
+            <input className="input" value={f.slug} onChange={(e) => setF({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })} aria-label="Company address" />
+          </Field>
           <div className="grid-2">
             <Field label="Ticket prefix" hint="For example AMB gives references like AMB-000123."><input className="input" value={f.ticket_prefix} onChange={(e) => setF({ ...f, ticket_prefix: e.target.value.toUpperCase() })} /></Field>
             <Field label="Timezone"><input className="input" value={f.timezone} onChange={(e) => setF({ ...f, timezone: e.target.value, working_hours: { ...wh, timezone: e.target.value } })} /></Field>

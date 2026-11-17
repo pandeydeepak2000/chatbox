@@ -109,7 +109,8 @@ class SecurityHeaders
 
     private function isDashboardPage(Request $request): bool
     {
-        return $request->is('app') || $request->is('app/*') || $request->is('*/admin') || $request->is('*/admin/*')
+        return $request->attributes->get('chatbox.dashboard') === true
+            || $request->is('app') || $request->is('app/*') || $request->is('*/admin') || $request->is('*/admin/*')
             || $request->is('legacy-dashboard') || $request->is('login') || $request->is('dashboard') || $request->is('register') || $request->is('workspace');
     }
 

@@ -77,7 +77,7 @@ class AiAdminReviewTest extends TestCase
         app('auth')->forgetGuards();
         $get = $this->actingAs($this->ownerA, 'sanctum')->getJson('/api/v1/ai/settings')->assertOk();
         $this->assertContains('orvapi', collect($get->json('data.providers'))->pluck('value')->all());
-        $this->assertContains('claude-sonnet-5-5', $get->json('data.model_suggestions.orvapi'));
+        $this->assertNull($get->json('data.model_suggestions'), 'No hard-coded model catalogue: models are discovered live from the provider.');
         $this->assertStringNotContainsString('sk-live', $get->getContent());
     }
 

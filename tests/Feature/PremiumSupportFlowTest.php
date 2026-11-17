@@ -276,7 +276,7 @@ class PremiumSupportFlowTest extends TestCase
         $this->assertStringContainsString('AmbitionHost', $text);
         $this->assertStringContainsString('Ambition Hosting', $text);
         $this->assertStringContainsString('join before', $text);
-        $this->assertStringContainsString('/app/inbox?id=' . $convId, $text);
+        $this->assertStringContainsString('/' . $this->tenantA->fresh()->slug . '/inbox?id=' . $convId, $text, 'The link uses the company own address.');
         $this->assertStringContainsString('sign-in required', $text);
     }
     public function test_masked_email_hides_most_of_the_address(): void

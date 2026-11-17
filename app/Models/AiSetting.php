@@ -8,47 +8,47 @@ use Illuminate\Database\Eloquent\Model;
 class AiSetting extends Model
 {
     public const PROVIDERS = [
-        'anthropic' => 'Anthropic (Claude)',
-        'openai' => 'OpenAI (official API)',
+        'openai' => 'OpenAI',
+        'gemini' => 'Google Gemini',
         'orvapi' => 'OrvAPI',
-        'openai_compatible' => 'Other OpenAI-compatible API',
+        'anthropic' => 'Anthropic (Claude)',
+        'openai_compatible' => 'Custom Provider',
     ];
 
     /** Fixed endpoints of the named providers (the admin cannot point these at another host). */
     public const PRESET_BASE_URLS = [
         'openai' => 'https://api.openai.com/v1',
-        'orvapi' => 'https://api.orvapi.com/v1', // from https://www.orvapi.com/docs/ (checked 2026-11-16)
-    ];
-
-    /**
-     * Model ids listed on https://www.orvapi.com/Model (checked 2026-11-16). Suggestions only: live availability
-     * (Active / Unavailable, paid-plan-only) is shown on that page and can change, so the admin types or picks one
-     * and uses "Test connection".
-     */
-    public const ORVAPI_MODEL_SUGGESTIONS = [
-        'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-4-5', 'gpt-5.5', 'gpt-5.4-mini', 'deepseek-v4-flash', 'deepseek-v4-pro',
-        'gemini-3.5-flash-lite', 'gemini-3.1-pro', 'glm-5.3-flash', 'grok-4.7', 'kimi-k3', 'qwen3.8-flash', 'qwen-plus',
+        'gemini' => 'https://generativelanguage.googleapis.com/v1beta/openai',
+        'orvapi' => 'https://api.orvapi.com/v1', // https://www.orvapi.com/docs/
     ];
 
     /** True for every provider spoken to through the OpenAI Chat Completions protocol. */
     public function usesOpenAiProtocol(): bool
     {
-        return in_array($this->provider, ['openai', 'orvapi', 'openai_compatible'], true);
+        return in_array($this->provider, ['openai', 'gemini', 'orvapi', 'openai_compatible'], true);
     }
 
+    /**
+     * Only send response_format where it is known to be accepted. OrvAPI's chat completions explicitly rejects it and
+     * Gemini's OpenAI layer documents it only through SDK helpers, so those rely on the prompt + tolerant JSON parsing.
+     */
+    public function jsonModeSupported(): bool
+    {
+        return $this->provider === 'openai' || ($this->provider === 'openai_compatible' && (bool) $this->json_mode);
+    }
     public function effectiveBaseUrl(): ?string
     {
         return self::PRESET_BASE_URLS[$this->provider] ?? $this->base_url;
     }
     public const EFFORTS = ['low', 'medium', 'high'];
 
-    protected $fillable = ['tenant_id', 'enabled', 'provider', 'base_url', 'model', 'effort', 'api_key', 'max_output_tokens', 'instructions'];
+    protected $fillable = ['tenant_id', 'enabled', 'provider', 'base_url', 'model', 'effort', 'api_key', 'max_output_tokens', 'instructions', 'provider_id', 'active_model_id', 'service_scope', 'timeout_seconds', 'json_mode'];
 
     protected $hidden = ['api_key'];
 
     protected function casts(): array
     {
-        return ['enabled' => 'boolean', 'api_key' => 'encrypted', 'max_output_tokens' => 'integer'];
+        return ['enabled' => 'boolean', 'api_key' => 'encrypted', 'max_output_tokens' => 'integer', 'json_mode' => 'boolean', 'timeout_seconds' => 'integer'];
     }
 
     public static function forTenant(string $tenantId): self
@@ -69,6 +69,10 @@ class AiSetting extends Model
             'effort' => $this->effort,
             'max_output_tokens' => $this->max_output_tokens,
             'instructions' => $this->instructions,
+            'service_scope' => $this->service_scope,
+            'provider_id' => $this->provider_id,
+            'active_model_id' => $this->active_model_id,
+            'timeout_seconds' => $this->timeout_seconds,
             'api_key_set' => $key !== '',
             'api_key_hint' => $key !== '' ? '…' . substr($key, -4) : null,
         ];

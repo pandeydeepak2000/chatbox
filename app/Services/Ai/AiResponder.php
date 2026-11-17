@@ -20,7 +20,7 @@ class AiResponder
     public const SCHEMA = [
         'type' => 'object',
         'properties' => [
-            'action' => ['type' => 'string', 'enum' => ['answer', 'clarify', 'escalate']],
+            'action' => ['type' => 'string', 'enum' => ['answer', 'clarify', 'escalate', 'out_of_scope']],
             'reply' => ['type' => 'string'],
             'language' => ['type' => 'string', 'enum' => ['en', 'hi', 'hi-Latn']],
             'confidence' => ['type' => 'number'],
@@ -155,6 +155,9 @@ class AiResponder
             case 'answered':
                 SupportBot::botReply($conversation, $decision['reply'], ['source' => 'ai', 'ai' => true, 'cited' => $decision['cited']]);
                 break;
+            case 'out_of_scope':
+                SupportBot::botReply($conversation, SupportBot::t('out_of_scope', $lang), ['source' => 'out_of_scope', 'ai' => true]);
+                break;
             case 'clarify':
                 $conversation->increment('clarifications_asked');
                 SupportBot::botReply($conversation, $decision['reply'], ['source' => 'ai_clarify', 'ai' => true]);
@@ -196,6 +199,19 @@ class AiResponder
         if ($reply !== '' && self::unsafeText($reply)) {
             return ['outcome' => 'escalate'];
         }
+        // Personal data the customer, the conversation and the approved passages do not already contain is never sent.
+        if ($reply !== '' && self::leaksForeignPersonalData($reply, $conversation, $hits)) {
+            return ['outcome' => 'escalate'];
+        }
+        if ($action === 'out_of_scope') {
+            // The model may only say "this is not about our services" when nothing in the message points at them.
+            $last = (string) Message::where('conversation_id', $conversation->id)->where('sender_type', 'visitor')->orderByDesc('seq')->value('content');
+            if ($hits || ServiceScope::looksServiceRelated($last, $conversation->property)) {
+                return ['outcome' => 'escalate'];
+            }
+
+            return ['outcome' => 'out_of_scope']; // the reply sent is OUR fixed text, never the model's
+        }
         if ($action === 'clarify' && $reply !== '' && $conversation->clarifications_asked < 1) {
             return ['outcome' => 'clarify', 'reply' => mb_substr($reply, 0, 400)];
         }
@@ -209,6 +225,37 @@ class AiResponder
             return ['outcome' => 'escalate']; // an answer that is not grounded in approved knowledge is never sent
         }
         return ['outcome' => 'answered', 'reply' => mb_substr($reply, 0, 3000), 'cited' => $cited];
+    }
+
+    /**
+     * An e-mail address, phone number or card-like number in the reply must already appear in this conversation or in
+     * the retrieved approved passages (e.g. the company's own support e-mail). Anything else could be another
+     * customer's data and is never sent: the request goes to a person instead.
+     */
+    private static function leaksForeignPersonalData(string $reply, Conversation $conversation, array $hits): bool
+    {
+        $allowed = implode("\n", array_merge(
+            Message::where('conversation_id', $conversation->id)->where('visibility', 'public')->orderByDesc('seq')->limit(30)->pluck('content')->all(),
+            array_map(fn ($h) => (string) ($h['content'] ?? ''), $hits)
+        ));
+        $allowedDigits = preg_replace('/\D+/', '', $allowed);
+        if (preg_match_all('/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i', $reply, $m)) {
+            foreach ($m[0] as $email) {
+                if (stripos($allowed, $email) === false) {
+                    return true;
+                }
+            }
+        }
+        if (preg_match_all('/(?<!\d)\+?\d[\d\s().\-]{7,22}\d(?!\d)/', $reply, $m)) {
+            foreach ($m[0] as $num) {
+                $digits = preg_replace('/\D+/', '', $num);
+                if (strlen($digits) >= 9 && ! str_contains($allowedDigits, $digits)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /** Admin "Test connection": one tiny call with the saved provider/model/key. Never exposes the key. */
@@ -249,6 +296,8 @@ class AiResponder
             '- Answer ONLY with facts found in the <knowledge> passages of the latest user turn. Cite the ids of the passages you used in cited_ids.',
             '- The passages belong to this company only. Never use prices, plans or policies of any other company, and never use outside knowledge about them.',
             '- If the passages do not contain a reliable answer, set action "escalate". Do not guess.',
+            "- You are NOT a general assistant. You only help with {$site}'s own services and support. If the message is about something else (general knowledge, sport, politics, entertainment, jokes, personal advice, homework) and is not a greeting or thanks, set action \"out_of_scope\" with an empty reply. Never answer such questions.",
+            ServiceScope::promptSummary($conversation->property),
             '- If the question is vague (for example "my website is not opening"), set action "clarify" and ask exactly ONE specific question (what error or page the customer sees). Do not list troubleshooting steps before the cause is known.',
             '- If the customer needs something only staff can do (payments, refunds, renewals, DNS or account changes, password/credential resets, checking their specific service or invoice), set action "escalate".',
             '- Never state or imply that a payment was received, a refund issued, a service renewed/suspended/fixed, or that a problem is resolved. You cannot see accounts or service status and you cannot perform actions.',

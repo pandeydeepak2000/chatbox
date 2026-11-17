@@ -540,7 +540,7 @@ class SeniorSupportWorkflowTest extends TestCase
         $this->assertStringContainsString('Status: Waiting for Team', $third);
         $this->assertStringContainsString('Pending: 1 hour 30 minutes', $third);
         $this->assertStringContainsString('Customer is still waiting for support.', $third);
-        $this->assertStringContainsString('/app/tickets?id=' . $ticket->id, $third);
+        $this->assertStringContainsString('/' . $this->tenantA->fresh()->slug . '/tickets?id=' . $ticket->id, $third);
         $this->assertStringContainsString('Pending: 30 minutes', $r[0]->message);
         $this->assertStringContainsString('Pending: 1 hour', $r[1]->message);
         $this->assertSame(3, DB::table('ticket_reminders')->where('ticket_id', $ticket->id)->count(), 'Notification history by ticket and period.');

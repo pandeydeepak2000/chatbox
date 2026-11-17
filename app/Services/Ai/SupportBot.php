@@ -60,6 +60,31 @@ class SupportBot
             'hi' => 'कृपया थोड़ा इंतज़ार करें। हम आपको हमारी सीनियर सपोर्ट टीम से जोड़ रहे हैं।',
             'hi-Latn' => 'Please thoda wait kariye. Hum aapko hamari senior support team se connect kar rahe hain.',
         ],
+        'thanks' => [
+            'en' => "You're welcome! Is there anything else I can help you with?",
+            'hi' => 'आपका स्वागत है! क्या मैं और किसी चीज़ में आपकी मदद कर सकता हूँ?',
+            'hi-Latn' => 'Aapka swagat hai! Kya main aur kisi cheez mein aapki madad kar sakta hoon?',
+        ],
+        'hello_again' => [
+            'en' => 'Hello! How can I help you with our services today?',
+            'hi' => 'नमस्ते! आज मैं हमारी सेवाओं में आपकी कैसे मदद कर सकता हूँ?',
+            'hi-Latn' => 'Namaste! Aaj main hamari services mein aapki kaise madad kar sakta hoon?',
+        ],
+        'bye' => [
+            'en' => 'Thank you for contacting us. Have a great day!',
+            'hi' => 'हमसे संपर्क करने के लिए धन्यवाद। आपका दिन शुभ हो!',
+            'hi-Latn' => 'Humse sampark karne ke liye dhanyavaad. Aapka din shubh ho!',
+        ],
+        'how_are_you' => [
+            'en' => "I'm doing well, thank you! How can I help you with our services today?",
+            'hi' => 'मैं ठीक हूँ, धन्यवाद! आज मैं हमारी सेवाओं में आपकी कैसे मदद कर सकता हूँ?',
+            'hi-Latn' => 'Main theek hoon, dhanyavaad! Aaj main hamari services mein aapki kaise madad kar sakta hoon?',
+        ],
+        'out_of_scope' => [
+            'en' => "I'm here to assist you with our services and support. Is there anything related to our services that I can help you with?",
+            'hi' => 'मैं यहाँ हमारी सेवाओं और सपोर्ट में आपकी मदद के लिए हूँ। क्या हमारी सेवाओं से जुड़ा कोई सवाल है जिसमें मैं आपकी मदद कर सकूँ?',
+            'hi-Latn' => 'Main yahan hamari services aur support mein aapki madad ke liye hoon. Kya hamari services se juda koi sawaal hai jisme main aapki madad kar sakta hoon?',
+        ],
         'assigned' => [
             'en' => 'Your request has been assigned to our support team.',
             'hi' => 'आपका अनुरोध हमारी सपोर्ट टीम को असाइन कर दिया गया है।',
@@ -130,6 +155,23 @@ class SupportBot
             return self::botReply($conversation, self::t('identity', $lang, ['brand' => self::brand($conversation->property)]), ['source' => 'identity']);
         }
 
+        // Thanks / goodbye / "how are you": a short friendly answer, no AI cost, never an escalation.
+        if ($small = self::smallTalk($text)) {
+            return self::botReply($conversation, self::t($small, $lang), ['source' => 'small_talk']);
+        }
+        // A bare "ok" / "got it" needs no reply, unless it answers a question the assistant just asked.
+        if (self::isAcknowledgement($text) && ! self::lastBotAskedQuestion($conversation)) {
+            return null;
+        }
+
+        // A plain "hello" never needs the paid AI: the opening greeting already welcomed a first-time visitor; a later one
+        // gets one short friendly line. (This also means a provider outage can never turn "hello" into an escalation.)
+        if (self::isHello($text)) {
+            $said = Message::where('conversation_id', $conversation->id)->where('sender_type', 'visitor')->count();
+
+            return $said <= 1 ? null : self::botReply($conversation, self::t('hello_again', $lang), ['source' => 'small_talk']);
+        }
+
         if (self::wantsHuman($text)) {
             return self::transferSupportTeam($conversation, $message, $lang, 'customer_request');
         }
@@ -141,6 +183,13 @@ class SupportBot
 
         if ($faq = self::faqMatch($conversation->property, $text)) {
             return self::botReply($conversation, $faq->answer . self::t('faq_footer', $lang), ['source' => 'faq', 'faq_id' => $faq->id]);
+        }
+
+        // Not a general chatbot: an unmistakably unrelated question (sport, politics, jokes...) with no service signal and
+        // no matching approved knowledge is politely redirected. No AI call, no ticket, no senior-support countdown.
+        if (! self::isGreetingOnly($text) && ServiceScope::isOffTopic($text, $conversation->property)
+            && ! KnowledgeSearch::search($conversation->property->tenant_id, $conversation->property_id, $text, 1)) {
+            return self::botReply($conversation, self::t('out_of_scope', $lang), ['source' => 'out_of_scope']);
         }
 
         $settings = AiSetting::forTenant($conversation->property->tenant_id);
@@ -249,6 +298,41 @@ class SupportBot
         });
     }
 
+    /** @return string|null template key for pure pleasantries (thanks, goodbye, how are you) */
+    public static function smallTalk(string $text): ?string
+    {
+        $t = trim($text);
+        if (preg_match('/^\s*(thanks|thank\s*you(\s+(so|very)\s+much)?|thx|dhanyavaa?d|dhanyawad|shukriya|धन्यवाद|शुक्रिया)[\s!.,]*$/iu', $t)) {
+            return 'thanks';
+        }
+        if (preg_match('/^\s*(bye(\s+bye)?|goodbye|good\s*night|see\s+you(\s+later)?|alvida|tata|ok\s+bye|thanks?\s+bye)[\s!.,]*$/iu', $t)) {
+            return 'bye';
+        }
+        if (preg_match('/^\s*(how\s+are\s+(you|u)|how\s+r\s+u|kaise\s+ho|kaisi\s+ho|aap\s+kaise\s+ho)[\s?!.,]*$/iu', $t)) {
+            return 'how_are_you';
+        }
+
+        return null;
+    }
+
+    public static function isHello(string $text): bool
+    {
+        return (bool) preg_match('/^\s*(hi+|hello+|hey+|hii+|namaste|namaskar|good\s+(morning|afternoon|evening)|नमस्ते)[\s!.,]*$/iu', $text);
+    }
+
+    public static function isAcknowledgement(string $text): bool
+    {
+        return (bool) preg_match('/^\s*(ok|okay|k|alright|got\s+it|cool|great|fine|accha|achha|theek\s+hai|thik\s+hai|samajh\s+gaya|hmm+)[\s!.,]*$/iu', $text);
+    }
+
+    /** True when the assistant's last message was a clarifying question (so a bare "ok" is an answer, not small talk). */
+    private static function lastBotAskedQuestion(Conversation $conversation): bool
+    {
+        $last = Message::where('conversation_id', $conversation->id)->where('sender_type', 'bot')->orderByDesc('seq')->first();
+
+        return $last && in_array($last->metadata['source'] ?? '', ['clarify', 'ai_clarify', 'clarify_sales'], true);
+    }
+
     /** Customer asks whether they are talking to a bot / AI / person (not asking to be connected). */
     public static function asksIfAutomated(string $text): bool
     {
@@ -351,7 +435,7 @@ class SupportBot
 
     private static function isGreetingOnly(string $text): bool
     {
-        return (bool) preg_match('/^\s*(hi+|hello+|hey+|namaste|namaskar|good\s+(morning|afternoon|evening)|नमस्ते|ok|okay|thanks?|thank\s+you|dhanyavaad)[\s!.,]*$/iu', $text);
+        return (bool) preg_match('/^\s*(hi+|hello+|hey+|namaste|namaskar|good\s+(morning|afternoon|evening|night)|नमस्ते|ok|okay|thanks?|thank\s+you|thx|dhanyavaad|shukriya)[\s!.,]*$/iu', $text);
     }
 
     /** [customer asks about (regex), FAQ question/category is about (regex), score boost]. */

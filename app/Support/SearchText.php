@@ -69,7 +69,8 @@ class SearchText
             return 'hi';
         }
         $words = preg_split('/[^a-z]+/', mb_strtolower($text), -1, PREG_SPLIT_NO_EMPTY) ?: [];
-        $hinglish = ['hai', 'hain', 'kya', 'kaise', 'mera', 'meri', 'mujhe', 'nahi', 'karna', 'karo', 'chahiye', 'kyun', 'aap', 'bhai', 'batao', 'kab', 'raha', 'rahi', 'gaya', 'mein', 'ho', 'ji', 'krna', 'kardo'];
+        $hinglish = ['hai', 'hain', 'kya', 'kaise', 'mera', 'meri', 'mujhe', 'nahi', 'karna', 'karo', 'chahiye', 'kyun', 'aap', 'bhai', 'batao', 'kab', 'raha', 'rahi', 'gaya', 'mein', 'ho', 'ji', 'krna', 'kardo',
+            'kaun', 'kal', 'aaj', 'kahan', 'kaha', 'kitna', 'kitne', 'kuch', 'bata', 'batana', 'sakta', 'sakte', 'karein', 'kijiye', 'nahin', 'accha', 'achha', 'theek', 'wala', 'wali', 'kaisa', 'kaisi', 'lekin', 'magar', 'abhi', 'bahut', 'bohot', 'jeetega', 'kyu', 'kyon', 'hoga', 'hogi', 'tha', 'thi'];
         $hits = count(array_intersect($words, $hinglish));
 
         return ($hits >= 2 || ($hits >= 1 && count($words) <= 4)) ? 'hi-Latn' : 'en';

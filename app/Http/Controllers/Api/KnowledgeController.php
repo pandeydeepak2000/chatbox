@@ -157,7 +157,7 @@ class KnowledgeController extends Controller
             'settings' => $settings->toSafeArray(),
             'budget' => $budget->only(['monthly_cap_usd', 'daily_cap_usd', 'per_visitor_daily_messages', 'alert_threshold_pct']),
             'providers' => collect(AiSetting::PROVIDERS)->map(fn ($l, $k) => ['value' => $k, 'label' => $l, 'base_url' => AiSetting::PRESET_BASE_URLS[$k] ?? null])->values(),
-            'model_suggestions' => ['orvapi' => AiSetting::ORVAPI_MODEL_SUGGESTIONS, 'orvapi_source' => 'https://www.orvapi.com/Model', 'orvapi_checked' => '2026-11-16'],
+            'provider_options' => \App\Services\Ai\AiProviderCatalog::options(),
             'prices' => AiModelPrice::orderBy('provider')->orderBy('model')->get(['provider', 'model', 'input_per_million', 'output_per_million']),
             'price_known' => AiBudgetService::price($settings) !== null,
             'status' => AiBudgetService::blockReason($settings, null),
@@ -177,6 +177,7 @@ class KnowledgeController extends Controller
             'clear_api_key' => ['nullable', 'boolean'],
             'max_output_tokens' => ['nullable', 'integer', 'min:256', 'max:8000'],
             'instructions' => ['nullable', 'string', 'max:8000'],
+            'service_scope' => ['nullable', 'string', 'max:4000'],
             'monthly_cap_usd' => ['required', 'numeric', 'min:0', 'max:100000'],
             'daily_cap_usd' => ['required', 'numeric', 'min:0', 'max:10000'],
             'per_visitor_daily_messages' => ['required', 'integer', 'min:0', 'max:1000'],
@@ -196,13 +197,20 @@ class KnowledgeController extends Controller
             'effort' => $v['effort'] ?? 'low',
             'max_output_tokens' => $v['max_output_tokens'] ?? 1500,
             'instructions' => $v['instructions'] ?? null,
+            'service_scope' => $v['service_scope'] ?? $settings->service_scope,
         ]);
+        // Switching provider without typing a key: use that provider's own saved key (never the previous provider's).
+        if (empty($v['api_key']) && $settings->isDirty('provider')) {
+            $ownKey = \App\Models\AiProvider::where('tenant_id', $tenantId)->where('type', \App\Services\Ai\AiProviderCatalog::typeFromSettingProvider($v['provider']))->value('api_key');
+            $settings->api_key = $ownKey ?: null;
+        }
         if (! empty($v['api_key'])) {
             $settings->api_key = trim($v['api_key']);
         } elseif (! empty($v['clear_api_key'])) {
             $settings->api_key = null;
         }
         $settings->save();
+        \App\Services\Ai\AiProviderService::syncFromLegacy($settings);
 
         AiBudget::forTenant($tenantId)->update([
             'monthly_cap_usd' => $v['monthly_cap_usd'],
@@ -233,7 +241,7 @@ class KnowledgeController extends Controller
             'daily' => $daily,
             'outcomes' => $outcomes,
             'recent' => AiUsageLog::where('tenant_id', $tenantId)->orderByDesc('id')->limit(30)
-                ->get(['id', 'model', 'input_tokens', 'output_tokens', 'cost_usd', 'latency_ms', 'outcome', 'error', 'created_at']),
+                ->get(['id', 'provider', 'model', 'input_tokens', 'output_tokens', 'cost_usd', 'latency_ms', 'outcome', 'error', 'created_at']),
         ]]);
     }
 

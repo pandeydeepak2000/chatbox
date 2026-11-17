@@ -16,6 +16,7 @@ const SECTION_META = {
   companies: ['Companies', 'Create workspaces, update company e-mails (Super Admin only), plans and account status.'],
   plans: ['Plans & billing', 'Configure subscription tiers, usage limits and public availability.'],
   users: ['Users & staff', 'Manage every staff and admin login across the entire platform.'],
+  aiproviders: ['Custom AI providers', 'Approve or reject the API addresses companies want to use. You see names and hosts only, never keys, chats or usage.'],
   prices: ['AI pricing', 'Manage per-million token prices. Models without a price are never called.'],
   mail: ['Mail / SMTP settings', 'Configure outbound SMTP for Forgot Password, customer PIN resets and transcripts.'],
   audit: ['Audit & security logs', 'Track logins, password resets, company updates and configuration changes.'],
@@ -41,7 +42,7 @@ export default function Platform({ ctx, activeSection = 'platform' }) {
           onChange={setLocalTab}
           items={[
             ['platform', 'Overview'], ['companies', 'Companies'], ['plans', 'Plans'], ['users', 'Users'],
-            ['prices', 'AI prices'], ['mail', 'Mail / SMTP'], ['audit', 'Audit logs'], ['system', 'System'],
+            ['prices', 'AI prices'], ['aiproviders', 'Custom AI providers'], ['mail', 'Mail / SMTP'], ['audit', 'Audit logs'], ['system', 'System'],
           ]}
         />
       )}
@@ -53,6 +54,7 @@ export default function Platform({ ctx, activeSection = 'platform' }) {
           {section === 'plans' && <Plans plans={o.data.data.plans} reload={() => o.reload(true)} />}
           {section === 'users' && <PlatformUsers tenants={o.data.data.tenants} meId={ctx.me?.user?.id} />}
           {section === 'prices' && <Prices />}
+          {section === 'aiproviders' && <CustomProviderApprovals />}
           {section === 'mail' && <MailSettings />}
           {section === 'audit' && <AuditLogs />}
           {section === 'system' && <SystemHealth />}
@@ -403,6 +405,42 @@ function PlatformUsers({ tenants, meId }) {
   );
 }
 
+function CustomProviderApprovals() {
+  const list = useApi('/platform/ai/custom-providers');
+  const [run, busy] = useAction();
+  const decide = (id, decision) => run(async () => {
+    await api(`/platform/ai/custom-providers/${id}/decision`, { method: 'POST', body: { decision } });
+    list.reload(true);
+  }, decision === 'approve' ? 'Approved' : 'Rejected');
+  return (
+    <section className="card">
+      <ErrorBox error={list.error} onRetry={list.reload} />
+      {!list.data ? <Loading /> : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead><tr><th>Company</th><th>Provider</th><th>Host</th><th>Status</th><th /></tr></thead>
+            <tbody>
+              {(list.data.data || []).map((p) => (
+                <tr key={p.id}>
+                  <td>{p.company}</td>
+                  <td>{p.name}</td>
+                  <td className="mono small">{p.host}</td>
+                  <td><Badge tone={p.approval_status === 'approved' ? 'green' : p.approval_status === 'pending' ? 'orange' : 'red'}>{fmt.label(p.approval_status)}</Badge></td>
+                  <td className="nowrap">
+                    <Button size="sm" disabled={busy || p.approval_status === 'approved'} onClick={() => decide(p.id, 'approve')}>Approve</Button>{' '}
+                    <Button size="sm" disabled={busy || p.approval_status === 'rejected'} onClick={() => decide(p.id, 'reject')}>Reject</Button>
+                  </td>
+                </tr>
+              ))}
+              {!(list.data.data || []).length && <tr><td colSpan={5} className="muted" style={{ textAlign: 'center', padding: 20 }}>No custom providers yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Prices() {
   const list = useApi('/platform/ai-prices');
   const [f, setF] = useState({ provider: 'anthropic', model: '', input_per_million: '', output_per_million: '' });
@@ -414,7 +452,7 @@ function Prices() {
         <h3 style={{ marginTop: 0 }}>Add or update model price</h3>
         <p className="muted small">USD per 1 million tokens. A model without a price is never called, because its spending could not be controlled.</p>
         <div className="grid-3">
-          <Field label="Provider"><Select value={f.provider} onChange={(v) => setF({ ...f, provider: v })} options={[{ value: 'anthropic', label: 'Anthropic' }, { value: 'openai_compatible', label: 'OpenAI-compatible' }]} /></Field>
+          <Field label="Provider"><Select value={f.provider} onChange={(v) => setF({ ...f, provider: v })} options={[{ value: 'openai', label: 'OpenAI' }, { value: 'gemini', label: 'Google Gemini' }, { value: 'orvapi', label: 'OrvAPI' }, { value: 'anthropic', label: 'Anthropic' }, { value: 'openai_compatible', label: 'Custom provider' }]} /></Field>
           <Field label="Model"><input className="input" placeholder="e.g. claude-3-5-haiku-latest" value={f.model} onChange={(e) => setF({ ...f, model: e.target.value })} /></Field>
           <Field label="Input $/1M"><input className="input" type="number" step="0.0001" value={f.input_per_million} onChange={(e) => setF({ ...f, input_per_million: e.target.value })} /></Field>
           <Field label="Output $/1M"><input className="input" type="number" step="0.0001" value={f.output_per_million} onChange={(e) => setF({ ...f, output_per_million: e.target.value })} /></Field>

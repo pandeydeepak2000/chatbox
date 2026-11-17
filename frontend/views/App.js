@@ -23,24 +23,50 @@ import Platform from './Platform';
 import Customers from './Customers';
 import NotificationBell from './NotificationBell';
 
-/** Website-specific admin URL: /{slug}/admin */
-function websiteSlugFromPath() {
-  const m = window.location.pathname.match(/^\/([a-z0-9][a-z0-9-]{1,38}[a-z0-9])\/admin(\/|$)/);
-  return m ? m[1] : null;
+/**
+ * Where the dashboard is open. Three addresses serve the same app:
+ *   /app[/view]               the classic address (also platform administrators)
+ *   /{website}/admin[/view]   website sign-in address
+ *   /{company}[/view]         the company's own address, e.g. /salute and /salute/inbox
+ * The address is presentation only: what a person may see is decided by the server from the signed-in account.
+ */
+const SLUG = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
+export function pathContext() {
+  if (typeof window === 'undefined') return { mode: 'app', base: '/app', rest: [] };
+  const parts = window.location.pathname.split('/').filter(Boolean);
+  if (parts[0] === 'app') return { mode: 'app', base: '/app', rest: parts.slice(1) };
+  if (parts[1] === 'admin' && SLUG.test(parts[0])) return { mode: 'website', base: `/${parts[0]}/admin`, slug: parts[0], rest: parts.slice(2) };
+  if (parts[0] && SLUG.test(parts[0])) return { mode: 'company', base: `/${parts[0]}`, company: parts[0], rest: parts.slice(1) };
+  return { mode: 'app', base: '/app', rest: [] };
 }
+
+const cleanParams = (entries) => Object.fromEntries(entries.filter(([, v]) => /^[A-Za-z0-9_-]{1,64}$/.test(v)));
 
 function parseHash() {
   const h = window.location.hash.replace(/^#\/?/, '');
   const [view, qs] = h.split('?');
-  const params = Object.fromEntries(
-    [...new URLSearchParams(qs || '')].filter(([, v]) => /^[A-Za-z0-9_-]{1,64}$/.test(v)),
-  );
-  return { view: /^[a-z]{1,20}$/.test(view) ? view : 'overview', params };
+  return { view: /^[a-z]{1,20}$/.test(view) ? view : null, params: cleanParams([...new URLSearchParams(qs || '')]) };
 }
 
-export function navigate(view, params = {}) {
+/** The view comes from the address path (/salute/inbox); the old #/inbox links are still understood. */
+function parseRoute() {
+  const c = pathContext();
+  const fromPath = c.rest[0] && /^[a-z]{1,20}$/.test(c.rest[0]) ? c.rest[0] : null;
+  if (fromPath) return { view: fromPath, params: cleanParams([...new URLSearchParams(window.location.search)]) };
+  const h = parseHash();
+  if (h.view) return h;
+  return { view: 'overview', params: cleanParams([...new URLSearchParams(window.location.search)]) };
+}
+
+const buildUrl = (view, params = {}) => {
   const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
-  window.location.hash = `/${view}${qs ? `?${qs}` : ''}`;
+  return `${pathContext().base}/${view}${qs ? `?${qs}` : ''}`;
+};
+
+/** Native history API (supported by Next.js shallow routing); the app listens for 'chatbox:navigate'. */
+export function navigate(view, params = {}) {
+  window.history.pushState(null, '', buildUrl(view, params));
+  window.dispatchEvent(new Event('chatbox:navigate'));
 }
 
 // [view, label, icon, required permission]
@@ -79,6 +105,7 @@ const PLATFORM_NAV_SECTIONS = [
   ]],
   ['System & Security', [
     ['prices', 'AI Pricing', Bot],
+    ['aiproviders', 'Custom AI Providers', Bot],
     ['mail', 'Mail / SMTP', Mail],
     ['audit', 'Audit & Security', ShieldCheck],
     ['system', 'System Health', Server],
@@ -97,8 +124,10 @@ export default function App() {
 function Root() {
   const [me, setMe] = useState(null);
   const [booting, setBooting] = useState(true);
-  const [route, setRoute] = useState(() => (typeof window === 'undefined' ? { view: 'overview', params: {} } : parseHash()));
-  const [slug] = useState(() => (typeof window === 'undefined' ? null : websiteSlugFromPath()));
+  const [route, setRoute] = useState(() => (typeof window === 'undefined' ? { view: 'overview', params: {} } : parseRoute()));
+  const [where] = useState(() => pathContext());
+  const slug = where.mode === 'website' ? where.slug : null;             // website sign-in address
+  const companySlug = where.mode === 'company' ? where.company : null;   // the company's own address
 
   const loadMe = useCallback(async () => {
     if (!getToken()) { setBooting(false); return; }
@@ -110,18 +139,51 @@ function Root() {
   }, []);
 
   useEffect(() => {
-    const onHash = () => setRoute(parseHash());
-    window.addEventListener('hashchange', onHash);
+    const onNav = () => {
+      // Old-style links (#/tickets?id=…) are turned into the real address (/company/tickets?id=…) on the spot.
+      if (window.location.hash.startsWith('#/')) {
+        const h = parseHash();
+        if (h.view) window.history.replaceState(null, '', buildUrl(h.view, h.params));
+      }
+      setRoute(parseRoute());
+    };
+    window.addEventListener('hashchange', onNav);
+    window.addEventListener('popstate', onNav);
+    window.addEventListener('chatbox:navigate', onNav);
     setUnauthorizedHandler(() => { setToken(null); setMe(null); });
     // Initial session check against the API (external system).
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadMe();
-    return () => window.removeEventListener('hashchange', onHash);
+    onNav();
+    return () => {
+      window.removeEventListener('hashchange', onNav);
+      window.removeEventListener('popstate', onNav);
+      window.removeEventListener('chatbox:navigate', onNav);
+    };
   }, [loadMe]);
 
+  const logout = () => { setToken(null); setMe(null); };
   if (booting) return <div className="center-screen"><Loading /></div>;
-  if (!me) return <Login slug={slug} onLogin={(data) => { setToken(data.token); setMe(data); }} />;
-  return <Shell me={me} route={route} slug={slug} reloadMe={loadMe} onLogout={() => { setToken(null); setMe(null); }} />;
+  if (!me) return <Login slug={slug} companySlug={companySlug} onLogin={(data) => { setToken(data.token); setMe(data); }} />;
+  // A company address only opens for people of that company. The server enforces access either way; this only avoids a confusing screen.
+  if (companySlug && me.user?.tenant?.slug !== companySlug) return <WrongCompany me={me} companySlug={companySlug} onLogout={logout} />;
+  return <Shell me={me} route={route} slug={slug} reloadMe={loadMe} onLogout={logout} />;
+}
+
+function WrongCompany({ me, companySlug, onLogout }) {
+  const own = me.user?.tenant?.slug;
+  return (
+    <div className="center-screen">
+      <div className="card" style={{ maxWidth: 460, margin: '10vh auto', textAlign: 'center' }}>
+        <h2>This address belongs to another company</h2>
+        <p className="muted">You are signed in as {me.user?.email}, which does not belong to <strong>{companySlug}</strong>. Nothing of that company is shown to you.</p>
+        <div className="row" style={{ justifyContent: 'center' }}>
+          {own ? <a className="btn btn-primary" href={`/${own}`}>Open my company ({own})</a> : <a className="btn btn-primary" href="/app">Open the platform dashboard</a>}
+          <button type="button" className="btn" onClick={onLogout}>Sign out</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /* ------------------------------------------------------------------ login */
@@ -131,8 +193,9 @@ const LOGIN_POINTS = [
   [Sparkles, 'Answers from your own knowledge', 'The assistant only uses FAQs and documents your team has approved.'],
 ];
 
-function Login({ slug, onLogin }) {
+function Login({ slug, companySlug, onLogin }) {
   const [site, setSite] = useState(null);
+  const [company, setCompany] = useState(null);
   const [reset] = useState(() => {
     const p = new URLSearchParams(window.location.search);
     return p.get('reset_token') ? { token: p.get('reset_token'), email: p.get('email') || '' } : null;
@@ -146,13 +209,16 @@ function Login({ slug, onLogin }) {
   useEffect(() => {
     if (slug) api(`/public/websites/${slug}`).then((r) => setSite(r.data)).catch(() => setSite({ missing: true }));
   }, [slug]);
+  useEffect(() => {
+    if (companySlug) api(`/public/tenants/${companySlug}`).then((r) => setCompany(r.data)).catch(() => setCompany({ missing: true }));
+  }, [companySlug]);
 
   const submit = async (e) => {
     e.preventDefault();
     setError(''); setNotice('');
     try {
       if (mode === 'login') {
-        const r = await api('/auth/login', { method: 'POST', body: { email: form.email, password: form.password, website_slug: slug || undefined } });
+        const r = await api('/auth/login', { method: 'POST', body: { email: form.email, password: form.password, website_slug: slug || undefined, tenant_slug: companySlug || undefined } });
         onLogin(r.data);
       } else if (mode === 'forgot') {
         const r = await api('/auth/forgot-password', { method: 'POST', body: { email: form.email } });
@@ -167,12 +233,13 @@ function Login({ slug, onLogin }) {
   };
 
   const siteKnown = site && !site.missing;
-  const title = mode === 'forgot' ? 'Reset your password' : mode === 'reset' ? 'Choose a new password' : siteKnown ? `Sign in to ${site.site_name}` : 'Welcome back';
+  const companyKnown = company && !company.missing;
+  const title = mode === 'forgot' ? 'Reset your password' : mode === 'reset' ? 'Choose a new password' : companyKnown ? `Sign in to ${company.name}` : siteKnown ? `Sign in to ${site.site_name}` : 'Welcome back';
   const subtitle = mode === 'forgot'
     ? 'Enter your work e-mail and we will send you a secure reset link.'
     : mode === 'reset'
       ? 'Use at least 8 characters. You will be signed out on other devices.'
-      : siteKnown ? 'Use the staff account that has access to this website.' : 'Sign in to your support workspace to continue.';
+      : companyKnown ? 'Use your staff account for this company.' : siteKnown ? 'Use the staff account that has access to this website.' : 'Sign in to your support workspace to continue.';
 
   return (
     <div className="login-screen">
@@ -284,7 +351,7 @@ function Shell({ me, route, slug, reloadMe, onLogout }) {
               <div key={section}>
                 <div className="nav-section">{section}</div>
                 {visible.map(([v, label, Icon]) => (
-                  <a key={v} href={`#/${v}`} className={`nav-item ${current[0] === v ? 'active' : ''}`} onClick={() => setMenuOpen(false)} aria-current={current[0] === v ? 'page' : undefined}>
+                  <a key={v} href={buildUrl(v)} className={`nav-item ${current[0] === v ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setMenuOpen(false); navigate(v); }} aria-current={current[0] === v ? 'page' : undefined}>
                     <Icon size={17} />{label}
                   </a>
                 ))}
@@ -318,7 +385,7 @@ function Shell({ me, route, slug, reloadMe, onLogout }) {
             <ChevronRight size={14} className="topbar-sep" />
             <strong className="ellipsis">{current[1]}</strong>
           </div>
-          {perms.is_super_admin && !platformOnly && route.view !== 'platform' && <a className="btn btn-sm btn-ghost" href="#/platform"><Zap size={14} />Platform</a>}
+          {perms.is_super_admin && !platformOnly && route.view !== 'platform' && <a className="btn btn-sm btn-ghost" href="/app/platform" onClick={(e) => { e.preventDefault(); window.history.pushState(null, '', '/app/platform'); window.dispatchEvent(new Event('chatbox:navigate')); }}><Zap size={14} />Platform</a>}
           <NotificationBell />
         </header>
         <main className="content">

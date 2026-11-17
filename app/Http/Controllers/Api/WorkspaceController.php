@@ -37,6 +37,15 @@ class WorkspaceController extends Controller
         ]]);
     }
 
+    /** Branding of a company sign-in page (/{company}). Name and address only: nothing private. */
+    public function publicTenant(string $slug): JsonResponse
+    {
+        $t = \App\Models\Tenant::where('slug', $slug)->where('status', 'active')->first(['id', 'name', 'slug']);
+        abort_unless($t, 404);
+
+        return response()->json(['success' => true, 'data' => ['name' => $t->name, 'slug' => $t->slug]]);
+    }
+
     public function company(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -47,6 +56,7 @@ class WorkspaceController extends Controller
         return response()->json(['success' => true, 'data' => [
             'id' => $tenant->id,
             'name' => $tenant->name,
+            'slug' => $tenant->slug,
             'email' => $tenant->email,
             'timezone' => $tenant->timezone,
             'ticket_prefix' => $tenant->ticket_prefix,
@@ -67,6 +77,7 @@ class WorkspaceController extends Controller
         $tenant = $user->tenant;
         $v = $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            'slug' => ['nullable', 'string', 'max:40'],
             'timezone' => ['required', 'timezone:all'],
             'ticket_prefix' => ['required', 'string', 'regex:/^[A-Z]{2,6}$/'],
             'working_hours.start' => ['required', 'date_format:H:i'],
@@ -79,6 +90,14 @@ class WorkspaceController extends Controller
 
         if (! empty($v['sales_followup_user_id']) && ! User::where('id', $v['sales_followup_user_id'])->where('tenant_id', $tenant->id)->exists()) {
             return response()->json(['success' => false, 'message' => 'Invalid staff member.', 'errors' => ['sales_followup_user_id' => ['Invalid staff member.']]], 422);
+        }
+
+        if (! empty($v['slug']) && $v['slug'] !== $tenant->slug) {
+            $problem = \App\Models\Tenant::slugProblem(mb_strtolower(trim($v['slug'])), $tenant->id);
+            if ($problem) {
+                return response()->json(['success' => false, 'message' => $problem, 'errors' => ['slug' => [$problem]]], 422);
+            }
+            $tenant->slug = mb_strtolower(trim($v['slug']));
         }
 
         $settings = $tenant->settings ?? [];

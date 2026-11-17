@@ -143,6 +143,7 @@ class AuthController extends Controller
             'email' => ['required', 'string', 'email'],
             'password' => ['required', 'string'],
             'website_slug' => ['nullable', 'string', 'max:60'],
+            'tenant_slug' => ['nullable', 'string', 'max:60'],
         ]);
 
         // Brute-force protection: e-mail + IP (5 tries / 15 min) and, against attacks spread over
@@ -173,6 +174,19 @@ class AuthController extends Controller
             throw ValidationException::withMessages([
                 'email' => ['The provided credentials do not match our records.'],
             ]);
+        }
+
+        // Company address (/{company}): only people of THAT company may sign in there. Same generic error as a wrong
+        // password (nothing reveals that the account exists elsewhere); platform administrators sign in at /app.
+        if (! empty($credentials['tenant_slug'])) {
+            $company = \App\Models\Tenant::where('slug', $credentials['tenant_slug'])->first();
+            if (! $company || $user->tenant_id !== $company->id) {
+                RateLimiter::hit($throttleKey, 900);
+                Audit::record('auth.login_failed', $user, ['tenant_slug' => $credentials['tenant_slug'], 'reason' => 'other_company'], tenantId: $user->tenant_id);
+                throw ValidationException::withMessages([
+                    'email' => ['The provided credentials do not match our records.'],
+                ]);
+            }
         }
 
         // Website-specific admin URL (/{slug}/admin): only staff with access to that website may sign

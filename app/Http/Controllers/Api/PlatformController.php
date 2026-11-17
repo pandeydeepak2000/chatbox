@@ -74,7 +74,14 @@ class PlatformController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', Rule::unique('tenants', 'email')->ignore($tenant->id)],
             'update_owner_email' => ['sometimes', 'boolean'],
+            'slug' => ['sometimes', 'nullable', 'string', 'max:40'],
         ]);
+        if (! empty($v['slug']) && $v['slug'] !== $tenant->slug) {
+            if ($problem = Tenant::slugProblem(mb_strtolower(trim($v['slug'])), $tenant->id)) {
+                return response()->json(['success' => false, 'message' => $problem, 'errors' => ['slug' => [$problem]]], 422);
+            }
+            $tenant->slug = mb_strtolower(trim($v['slug']));
+        }
 
         $newEmail = mb_strtolower(trim($v['email']));
         $oldEmail = $tenant->email;

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AgentChatController;
+use App\Http\Controllers\Api\AiProviderController;
 use App\Http\Controllers\Api\AiReviewController;
 use App\Http\Controllers\Api\AttachmentController;
 use App\Http\Controllers\Api\AuthController;
@@ -66,6 +67,7 @@ Route::prefix('v1')->group(function () {
 
     // Public branding for website-specific admin login pages (/{slug}/admin).
     Route::get('public/websites/{slug}', [WorkspaceController::class, 'publicWebsite'])->middleware('throttle:widget');
+    Route::get('public/tenants/{slug}', [WorkspaceController::class, 'publicTenant'])->middleware('throttle:widget');
 
     // Private attachment downloads: signed, expiring links only (audit C4/H9).
     Route::get('attachments/{attachment}', [AttachmentController::class, 'download'])
@@ -200,6 +202,19 @@ Route::prefix('v1')->group(function () {
             Route::get('quality', [AiReviewController::class, 'quality']);
             Route::post('regression/run', [AiReviewController::class, 'regression']);
             Route::post('test-connection', [AiReviewController::class, 'testConnection'])->middleware('throttle:5,1');
+
+            // Providers and models (each company: its own keys, models and approvals)
+            Route::get('providers', [AiProviderController::class, 'index']);
+            Route::post('providers/custom', [AiProviderController::class, 'storeCustom']);
+            Route::post('providers/{key}', [AiProviderController::class, 'update']);
+            Route::delete('providers/{key}', [AiProviderController::class, 'destroy']);
+            Route::post('providers/{key}/test', [AiProviderController::class, 'test'])->middleware('throttle:20,1');
+            Route::post('providers/{key}/discover', [AiProviderController::class, 'discover'])->middleware('throttle:20,1');
+            Route::post('providers/{key}/models', [AiProviderController::class, 'storeModel']);
+            Route::post('models/{id}', [AiProviderController::class, 'updateModel']);
+            Route::post('models/{id}/test', [AiProviderController::class, 'testModel'])->middleware('throttle:20,1');
+            Route::post('models/{id}/default', [AiProviderController::class, 'makeDefault']);
+            Route::delete('models/{id}', [AiProviderController::class, 'destroyModel']);
         });
         Route::post('ai/prices', [KnowledgeController::class, 'savePrice']);
 
@@ -218,6 +233,8 @@ Route::prefix('v1')->group(function () {
         Route::post('platform/tenants/{id}/subscription', [PlatformController::class, 'setSubscription'])->middleware('role:super_admin');
         Route::post('platform/plans', [PlatformController::class, 'savePlan'])->middleware('role:super_admin');
         Route::post('platform/plans/{code}', [PlatformController::class, 'savePlan'])->middleware('role:super_admin');
+        Route::get('platform/ai/custom-providers', [AiProviderController::class, 'platformList'])->middleware('role:super_admin');
+        Route::post('platform/ai/custom-providers/{id}/decision', [AiProviderController::class, 'platformDecide'])->middleware('role:super_admin');
         Route::get('platform/ai-prices', [PlatformController::class, 'aiPrices'])->middleware('role:super_admin');
         Route::get('platform/audit-logs', [PlatformController::class, 'auditLogs'])->middleware('role:super_admin');
         Route::get('platform/system-health', [PlatformController::class, 'systemHealth'])->middleware('role:super_admin');

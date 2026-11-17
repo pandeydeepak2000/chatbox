@@ -13,12 +13,14 @@ final class LlmResult
         public readonly ?string $stopReason = null,
         public readonly ?string $error = null,
         public readonly ?string $model = null,
+        /** HTTP status of a failed provider call (0 = unreachable/timeout); lets the admin UI tell bad key / bad model / outage apart. */
+        public readonly ?int $status = null,
     ) {
     }
 
-    public static function failed(string $error): self
+    public static function failed(string $error, ?int $status = null): self
     {
-        return new self(null, error: $error);
+        return new self(null, error: $error, status: $status);
     }
 
     public function ok(): bool

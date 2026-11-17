@@ -25,7 +25,7 @@ class AnthropicLlmClient implements LlmClient
         }
 
         try {
-            $client = new Client(apiKey: $key, requestOptions: ['timeout' => 25.0, 'maxRetries' => 1]);
+            $client = new Client(apiKey: $key, requestOptions: ['timeout' => (float) max(5, min(60, (int) ($settings->timeout_seconds ?: 25))), 'maxRetries' => 0]);
             $outputConfig = ['format' => ['type' => 'json_schema', 'schema' => $schema]];
             if (preg_match('/^claude-(opus|sonnet|haiku|fable)-5/', (string) $settings->model)) {
                 $outputConfig['effort'] = $settings->effort ?: 'low';
@@ -65,9 +65,9 @@ class AnthropicLlmClient implements LlmClient
                 ? new LlmResult($data, $in, $out, $cache, $message->stopReason, null, $message->model)
                 : new LlmResult(null, $in, $out, $cache, $message->stopReason, 'Model did not return valid JSON.', $message->model);
         } catch (APIStatusException $e) {
-            return LlmResult::failed('Provider error ' . $e->getCode() . ' (' . ($e->type?->value ?? 'api_error') . ')');
+            return LlmResult::failed('Provider error ' . $e->getCode() . ' (' . ($e->type?->value ?? 'api_error') . ')', (int) $e->getCode());
         } catch (APIConnectionException $e) {
-            return LlmResult::failed('Could not reach the AI provider.');
+            return LlmResult::failed('Could not reach the AI provider.', 0);
         } catch (\Throwable $e) {
             return LlmResult::failed('AI request failed: ' . mb_substr(str_replace($key, '[key]', $e->getMessage()), 0, 200));
         }

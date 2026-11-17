@@ -83,7 +83,7 @@ class Notifier
             '📧 Customer: ' . ($customerEmail ?: 'Not provided'),
             "Subject: {$ticket->subject}",
             'Source: ' . str_replace('_', ' ', $ticket->source),
-            'Open: ' . url('/app/tickets?id=' . $ticket->id),
+            'Open: ' . self::dashboardUrl($ticket->tenant_id, 'tickets', $ticket->id),
         ];
 
         self::telegram($ticket->tenant_id, 'ticket.created', implode("\n", $lines));
@@ -105,7 +105,7 @@ class Notifier
         $email = $session->customerAccount?->email;
         $who = $email ? self::maskEmail($email) . ($session->customerAccount?->email_verified_at ? '' : ' (e-mail not verified yet)') : 'Visitor — verification pending';
         $started = $session->started_at->copy()->timezone($cfg['timezone'])->format('d M Y, h:i:s A');
-        $url = url('/app/inbox');
+        $url = self::dashboardUrl($session->tenant_id, 'inbox');
 
         self::toUsers(self::staffFor($property), 'chat.started', 'New live chat', "{$session->reference} on {$property->site_name}", ['chat_session_id' => $session->id]);
         self::telegram($session->tenant_id, 'chat.started', implode("\n", [
@@ -155,7 +155,7 @@ class Notifier
             "Reason: {$reason}",
             "Question: {$excerpt}",
             "Escalated at {$when} · join before {$deadline} (" . Escalation::WINDOW_SECONDS . ' s window)',
-            'Take over (sign-in required): ' . url('/app/inbox?id=' . $conversation->id),
+            'Take over (sign-in required): ' . self::dashboardUrl($property->tenant_id, 'inbox', $conversation->id),
         ])), 'escalation:' . $escalation->id);
     }
 
@@ -208,7 +208,7 @@ class Notifier
             'due_at' => now(),
         ]);
         self::toUsers($owner ? collect([$owner]) : self::staffFor($conversation->property), 'sales.inquiry', 'New sales enquiry', ($conversation->visitor?->name ?: 'A visitor') . ' on ' . $conversation->property->site_name, ['conversation_id' => $conversation->id]);
-        self::telegram($tenantId, 'sales.inquiry', "💼 New sales enquiry on {$conversation->property->site_name}\nVisitor: " . ($conversation->visitor?->name ?: 'unknown') . "{$emailLine}\nOpen: " . url('/app/inbox?id=' . $conversation->id));
+        self::telegram($tenantId, 'sales.inquiry', "💼 New sales enquiry on {$conversation->property->site_name}\nVisitor: " . ($conversation->visitor?->name ?: 'unknown') . "{$emailLine}\nOpen: " . self::dashboardUrl($tenantId, 'inbox', $conversation->id));
     }
 
     public static function cancelSalesAlert(Conversation $conversation): void
@@ -316,7 +316,7 @@ class Notifier
                 $conversation->forceFill(['sales_alert_sent_at' => now()])->save();
                 $email = $conversation->customerAccount?->email ?: $conversation->visitor?->email;
                 $emailLine = $email ? "\n📧 Customer: {$email}" : '';
-                self::telegram($task->tenant_id, 'sales.overdue', "⏰ Sales enquiry on {$task->property?->site_name} has waited more than 30 working minutes for a first human reply.{$emailLine}\nOpen: " . url('/app/inbox?id=' . $conversation->id));
+                self::telegram($task->tenant_id, 'sales.overdue', "⏰ Sales enquiry on {$task->property?->site_name} has waited more than 30 working minutes for a first human reply.{$emailLine}\nOpen: " . self::dashboardUrl($task->tenant_id, 'inbox', $conversation->id));
                 self::toUsers(User::where('tenant_id', $task->tenant_id)->where('role', 'admin')->get(), 'sales.overdue', 'Sales enquiry waiting > 30 working minutes', $task->title, ['conversation_id' => $conversation->id]);
                 $count++;
             });
@@ -365,6 +365,15 @@ class Notifier
 
     public const REMINDER_INTERVAL_MINUTES = 30;
 
+    /** Dashboard link: the company's own address (/salute/inbox) when it has one, else /app/inbox. Sign-in is always required. */
+    public static function dashboardUrl(?string $tenantId, string $view, ?string $id = null): string
+    {
+        static $slugs = [];
+        $slug = $tenantId ? ($slugs[$tenantId] ??= (string) \App\Models\Tenant::whereKey($tenantId)->value('slug')) : '';
+
+        return url(($slug !== '' ? '/' . $slug : '/app') . '/' . $view . ($id ? '?id=' . $id : ''));
+    }
+
     /**
      * Telegram reminder every 30 minutes while a ticket waits for SUPPORT action (status open / waiting for team).
      * Ticket created 10:00 -> reminders 10:30, 11:00, 11:30 ... until it is resolved or closed.
@@ -411,7 +420,7 @@ class Notifier
                     '',
                     'Customer is still waiting for support.',
                     '',
-                    'Open Ticket (sign-in required): ' . url('/app/tickets?id=' . $t->id),
+                    'Open Ticket (sign-in required): ' . self::dashboardUrl($t->tenant_id, 'tickets', $t->id),
                 ]), "ticket-reminder:{$t->id}:{$t->reminder_cycle}:{$sequence}");
                 $count++;
             });

@@ -59,3 +59,19 @@ Route::get('/app/{path?}', $dashboardSpa)->where('path', '.*');
 Route::get('/{slug}/admin/{path?}', $dashboardSpa)
     ->where('slug', '[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])')
     ->where('path', '.*');
+
+/*
+| Company dashboard addresses: https://host/{company} and https://host/{company}/inbox, /tickets, /leads ...
+| The same static dashboard as /app, but under the company's own address. Registered LAST so every fixed route
+| (/app, /login, /{website}/admin, ...) keeps priority. Only a real company slug and a known view are served; anything
+| else is an ordinary 404. The address is presentation only: all data access is still decided by the signed-in user's
+| own company on the server (see the sign-in check for tenant_slug in AuthController).
+*/
+Route::get('/{companySlug}/{view?}/{path?}', function (string $companySlug, ?string $view = null) use ($dashboardSpa) {
+    abort_unless(\App\Models\Tenant::where('slug', $companySlug)->exists(), 404);
+    request()->attributes->set('chatbox.dashboard', true);   // same security headers / CSP as /app
+
+    return $dashboardSpa();
+})->where('companySlug', '[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])')
+    ->where('view', implode('|', \App\Models\Tenant::DASHBOARD_VIEWS))
+    ->where('path', '.*');
