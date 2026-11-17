@@ -63,6 +63,29 @@ const buildUrl = (view, params = {}) => {
   return `${pathContext().base}/${view}${qs ? `?${qs}` : ''}`;
 };
 
+/**
+ * Every signed-in person works at ONE address: company staff at /{their company}, platform administrators at /app.
+ * Opening /app or another company's address after sign-in moves the browser (no reload) to the person's own address.
+ * This is about a clear, consistent link only; access is still decided by the server from the account on every request.
+ */
+const COMPANY_VIEWS = ['overview', 'inbox', 'tickets', 'leads', 'customers', 'knowledge', 'ai', 'aireview', 'websites', 'team', 'notifications', 'analytics', 'company'];
+function ownBase(me) {
+  const own = me?.user?.tenant?.slug;
+  if (me?.user?.tenant_id) return own && SLUG.test(own) ? `/${own}` : null;   // company staff (incl. a super admin who belongs to a company)
+  return me?.permissions?.is_super_admin ? '/app' : null;                     // platform administrator
+}
+export function moveToOwnAddress(me) {
+  if (typeof window === 'undefined') return;
+  const c = pathContext();
+  if (c.mode === 'website') return;                                 // /{website}/admin keeps its website scope
+  const base = ownBase(me);
+  if (!base || base === c.base) return;
+  if (base !== '/app' && me?.permissions?.is_super_admin && c.mode === 'app') return;   // platform pages stay on /app
+  // Only views a company address serves are carried over, so a reload never lands on a 404.
+  const view = base === '/app' || COMPANY_VIEWS.includes(c.rest[0]) ? c.rest[0] : null;
+  window.history.replaceState(null, '', `${base}${view ? `/${view}` : ''}${window.location.search}${window.location.hash}`);
+}
+
 /** Native history API (supported by Next.js shallow routing); the app listens for 'chatbox:navigate'. */
 export function navigate(view, params = {}) {
   window.history.pushState(null, '', buildUrl(view, params));
@@ -125,18 +148,25 @@ function Root() {
   const [me, setMe] = useState(null);
   const [booting, setBooting] = useState(true);
   const [route, setRoute] = useState(() => (typeof window === 'undefined' ? { view: 'overview', params: {} } : parseRoute()));
-  const [where] = useState(() => pathContext());
+  const where = typeof window === 'undefined' ? { mode: 'app' } : pathContext();   // re-read: the address can change after sign-in
   const slug = where.mode === 'website' ? where.slug : null;             // website sign-in address
   const companySlug = where.mode === 'company' ? where.company : null;   // the company's own address
+
+  // Signed in: move to the person's own address first, then show the dashboard there.
+  const signedIn = useCallback((data) => {
+    moveToOwnAddress(data);
+    setRoute(parseRoute());
+    setMe(data);
+  }, []);
 
   const loadMe = useCallback(async () => {
     if (!getToken()) { setBooting(false); return; }
     try {
       const r = await api('/auth/me');
-      setMe(r.data);
+      signedIn(r.data);
     } catch { setToken(null); }
     setBooting(false);
-  }, []);
+  }, [signedIn]);
 
   useEffect(() => {
     const onNav = () => {
@@ -164,7 +194,7 @@ function Root() {
 
   const logout = () => { setToken(null); setMe(null); };
   if (booting) return <div className="center-screen"><Loading /></div>;
-  if (!me) return <Login slug={slug} companySlug={companySlug} onLogin={(data) => { setToken(data.token); setMe(data); }} />;
+  if (!me) return <Login slug={slug} companySlug={companySlug} onLogin={(data) => { setToken(data.token); signedIn(data); }} />;
   // A company address only opens for people of that company. The server enforces access either way; this only avoids a confusing screen.
   if (companySlug && me.user?.tenant?.slug !== companySlug) return <WrongCompany me={me} companySlug={companySlug} onLogout={logout} />;
   return <Shell me={me} route={route} slug={slug} reloadMe={loadMe} onLogout={logout} />;

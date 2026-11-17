@@ -60,7 +60,7 @@ export default function Company({ ctx }) {
             c.setData(r);
             // The company address is part of the page URL: after changing it, continue at the new address (same session).
             const next = r.data?.slug;
-            if (next && d.slug && next !== d.slug && window.location.pathname.startsWith(`/${d.slug}`)) {
+            if (next && next !== d.slug) {
               window.location.replace(`/${next}/company`);
             }
           }, 'Company settings saved')}><Save size={15} />Save changes</Button></div>}
